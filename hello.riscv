@@ -1,0 +1,11 @@
+ .text
+ .globl main
+main:
+1
+0
+7
+0
+7
+0
+ li  a0, 7
+ ret

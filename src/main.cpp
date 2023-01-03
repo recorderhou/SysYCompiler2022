@@ -18,6 +18,7 @@ using namespace std;
 extern FILE *yyin;
 extern FILE *yyout;
 extern int yyparse(unique_ptr<BaseAST> &ast);
+int var_count;
 
 // 函数声明略
 // ...
@@ -28,6 +29,7 @@ void Visit(const koopa_raw_basic_block_t &bb);
 void Visit(const koopa_raw_value_t &value);
 void Visit(const koopa_raw_return_t &ret);
 void Visit(const koopa_raw_integer_t &integer);
+void Visit(const koopa_raw_binary_t &integer);
 
 // 访问 raw program
 void Visit(const koopa_raw_program_t &program) {
@@ -117,6 +119,9 @@ void Visit(const koopa_raw_value_t &value) {
       // 访问 integer 指令
       Visit(kind.data.integer);
       break;
+    case KOOPA_RVT_BINARY:
+      Visit(kind.data.binary);
+      break;
     default:
       // 其他类型暂时遇不到
       assert(false);
@@ -132,6 +137,11 @@ void Visit(const koopa_raw_return_t &ret){
   cout << " ret" << endl;
 }
 
+void Visit(const koopa_raw_binary_t &binary) {
+  cout << binary.op << endl;
+  cout << binary.lhs->kind.tag << endl;
+}
+
 void Visit(const koopa_raw_integer_t &integer){
   cout << integer.value << endl;
 }
@@ -143,6 +153,8 @@ int main(int argc, const char *argv[]) {
   auto mode = argv[1];
   auto input = argv[2];
   auto output = argv[4];
+
+  cout << mode << endl;
 
   // 打开输入文件, 并且指定 lexer 在解析的时候读取这个文件
   yyin = fopen(input, "r");
