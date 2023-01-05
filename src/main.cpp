@@ -19,6 +19,7 @@ extern FILE *yyin;
 extern FILE *yyout;
 extern int yyparse(unique_ptr<BaseAST> &ast);
 int var_count;
+int register_count; 
 
 // 函数声明略
 // ...
@@ -131,15 +132,26 @@ void Visit(const koopa_raw_value_t &value) {
 // 访问对应类型指令的函数定义略
 // 视需求自行实现
 void Visit(const koopa_raw_return_t &ret){
-  cout << " li  a0, ";
+  cout << " mv  a0, t0" << endl;
   // 这里之前出过错
-  cout << ret.value->kind.data.integer.value << endl;
+  // cout << ret.value->kind.data.integer.value << endl;
   cout << " ret" << endl;
 }
 
+// op, lhs, rhs
 void Visit(const koopa_raw_binary_t &binary) {
-  cout << binary.op << endl;
-  cout << binary.lhs->kind.tag << endl;
+  cout << "li   t0, " << binary.lhs->kind.data.integer.value << endl;
+  cout << "li   t1, " << binary.rhs->kind.data.integer.value << endl;
+  if(binary.op == KOOPA_RBO_EQ){
+    cout << "xor  t0, t0, t1" << endl;
+    cout << "seqz t0, t0" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_SUB){
+    cout << "sub  t0, t0, t1" << endl;
+  }
+  // cout << binary.lhs->kind.tag << endl;
+  // cout << "binary_lhs_ty" << binary.lhs->ty << endl;
+  // cout << "bbinary_lhs_ty" << binary.rhs->ty << endl;
 }
 
 void Visit(const koopa_raw_integer_t &integer){

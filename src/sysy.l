@@ -21,7 +21,9 @@ LineComment   "//".*
 BlockComment  \/\*(?:[^\*]|\*+[^\/\*])*\*+\/
 
 /* 运算符 */
-SingleOP    "+"|"-"|"!"
+DoubleOP    ">="|"<="|"=="|"!="|"&&"|"||"
+SingleOP    "+"|"-"|"!"|"*"|"\"|"%"
+
 
 /* 标识符 */
 Identifier    [a-zA-Z_][a-zA-Z0-9_]*
@@ -46,6 +48,12 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 {Octal}         { yylval.int_val = strtol(yytext, nullptr, 0); return INT_CONST; }
 {Hexadecimal}   { yylval.int_val = strtol(yytext, nullptr, 0); return INT_CONST; }
 
+"<="            {yylval.str_val = new string(yytext); return LEQ;}
+">="            {yylval.str_val = new string(yytext); return GEQ;}
+"!="            {yylval.str_val = new string(yytext); return NEQ;}
+"=="            {yylval.str_val = new string(yytext); return EQ;}
+"&&"            {yylval.str_val = new string(yytext); return AND;}
+"||"            {yylval.str_val = new string(yytext); return OR;}
 
 .               { return yytext[0]; }
 
