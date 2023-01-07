@@ -7,6 +7,7 @@
 #include <string>
 #include <cstring>
 #include <stdio.h>
+#include <map>
 
 using namespace std;
 
@@ -20,6 +21,9 @@ extern FILE *yyout;
 extern int yyparse(unique_ptr<BaseAST> &ast);
 int var_count;
 int register_count; 
+
+Symbol symm;
+SymTable sym_table;
 
 // 函数声明略
 // ...
@@ -182,6 +186,7 @@ int main(int argc, const char *argv[]) {
   // 输出解析得到的 AST, 其实就是个字符串
   ast->Dump(ret_str);
   cout << endl;
+
   const char* str = ret_str.c_str();
   // 解析字符串 str, 得到 Koopa IR 程序
   koopa_program_t program;
