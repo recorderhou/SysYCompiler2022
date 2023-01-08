@@ -260,35 +260,41 @@ class StmtAST : public BaseAST{
             std::string ans;
             ans = Exp->Calc(ret_str);
             std::cout << "AAA" << std::endl;
-            if(ans[0] == '@'){ // 具名变量
-                std::string tmp;
-                tmp = "%" + std::to_string(var_count);
-                var_count ++;
-
-                ret_str += "    ";
-                ret_str += tmp;
-                ret_str += " = ";
-                ret_str += "load ";
-                ret_str += ans;
-                ret_str += "\n";
-
-                std::cout << "    ";
-                std::cout << tmp;
-                std::cout << " = ";
-                std::cout << "load ";
-                std::cout << ans;
-                std::cout << "\n";
-
+            if(branch.size() == 1){
                 ret_str += "    ret ";
-                ret_str += tmp;
                 std::cout << "   ret ";
-                std::cout << tmp;
             }
-            else { // 立即数或%0
-                ret_str += "    ret ";
-                ret_str += ans;
-                std::cout << "   ret ";
-                std::cout << ans;
+            else if(branch.size() == 2){
+                if(ans[0] == '@'){ // 具名变量
+                    std::string tmp;
+                    tmp = "%" + std::to_string(var_count);
+                    var_count ++;
+
+                    ret_str += "    ";
+                    ret_str += tmp;
+                    ret_str += " = ";
+                    ret_str += "load ";
+                    ret_str += ans;
+                    ret_str += "\n";
+
+                    std::cout << "    ";
+                    std::cout << tmp;
+                    std::cout << " = ";
+                    std::cout << "load ";
+                    std::cout << ans;
+                    std::cout << "\n";
+
+                    ret_str += "    ret ";
+                    ret_str += tmp;
+                    std::cout << "   ret ";
+                    std::cout << tmp;
+                }
+                else { // 立即数或%0
+                    ret_str += "    ret ";
+                    ret_str += ans;
+                    std::cout << "   ret ";
+                    std::cout << ans;
+                }
             }
         }
         else if (branch[0]->type == _LVal){

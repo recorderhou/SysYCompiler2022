@@ -346,6 +346,14 @@ Stmt
     ast->branch.push_back($2);
     $$ = ast;
   }
+  | RETURN ';' {
+    printf("stmt in return\n");
+    auto ast = new StmtAST();
+    auto ret_ast = new ReturnAST();
+    ret_ast->ret = "return";
+    ast->branch.push_back(ret_ast);
+    $$ = ast;
+  }
   | error {
     printf("error Stmt, unbelievable\n");
   }
