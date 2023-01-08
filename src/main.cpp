@@ -308,12 +308,16 @@ int main(int argc, const char *argv[]) {
   // 调用 parser 函数, parser 函数会进一步调用 lexer 解析输入文件的
   unique_ptr<BaseAST> ast;
   auto rett = yyparse(ast);
-  assert(!rett);
+  // assert(!rett);
 
   string ret_str;
   // 输出解析得到的 AST, 其实就是个字符串
   ast->Dump(ret_str);
   cout << endl;
+
+  freopen(output, "w", stdout);
+  cout << ret_str << endl;
+  fclose(stdout);
 
   const char* str = ret_str.c_str();
   // 解析字符串 str, 得到 Koopa IR 程序

@@ -208,6 +208,8 @@ class LValAST : public BaseAST{
         while(used_table->sym_table.find(ident) == used_table->sym_table.end()){
             used_table = used_table->parent;
         }
+        if(used_table == NULL)
+            std::cout << "LVAL-SYMTABLE WRONG" << std::endl;
         depth = used_table->table_index;
         Symbol tmp_ans = used_table->sym_table[ident];
 
@@ -215,8 +217,8 @@ class LValAST : public BaseAST{
         if(tmp_ans.type == _CONST){
             ans = std::to_string(tmp_ans.sym_val);
         }
-        else if(tmp_ans.type == _NUM){
-            std::cout << "NUM" << std::endl;
+        else if(tmp_ans.type == _NUM || tmp_ans.type == _UNK){
+            std::cout << "NUM OR UNK" << std::endl;
             ans = "@" + ident + "_" + std::to_string(depth);
         }
         return ans;
@@ -313,6 +315,8 @@ class StmtAST : public BaseAST{
             // 可以是数或%0
             // 变量名已经由LVal->Calc(ret_str)整理好
             ans2 = cur_branch->Calc(ret_str);
+            std::cout << "ans2 " << ans2 << std::endl; 
+            std::cout << int(cur_branch->type == _LVal) << std::endl;
             tmp1 = Exp->Calc(ret_str);
 
             ans1 = tmp1;
