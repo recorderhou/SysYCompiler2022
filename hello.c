@@ -1,5 +1,10 @@
 int main() {
-  return 9 <= 3;
+  int a = 1;
+  {
+    a = 2;
+    int a = 3;
+  }
+  return a;
 }
 
 

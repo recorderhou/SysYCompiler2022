@@ -2,10 +2,10 @@
  .globl main
 main:
  addi  sp, sp, -16
- li t0, 9
- li t1, 3
- bge  t0, t1, t0
+ li t0, 1
  sw t0, 0(sp)
- lw a0, 0(sp)
+ lw t0, 0(sp)
+ sw t0, 4(sp)
+ lw a0, 4(sp)
  addi  sp, sp, 16
  ret

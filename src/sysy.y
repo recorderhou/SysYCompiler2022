@@ -140,14 +140,14 @@ MultiBlockItem
 
 BlockItem
   : Decl {
-    printf("in decl\n");
+    printf("block item in decl\n");
     auto ast = new BlockItemAST();
     ast->decl = unique_ptr<BaseAST>($1);
     ast->branch.push_back($1);
     $$ = ast;
   }
   | Stmt {
-    printf("in stmt\n");
+    printf("block item in stmt\n");
     auto ast = new BlockItemAST();
     ast->stmt = unique_ptr<BaseAST>($1);
     ast->branch.push_back($1);
@@ -309,6 +309,7 @@ ConstExp
 
 Stmt
   : LVal '=' Exp ';' {
+    printf("stmt in lval=exp\n");
     auto ast = new StmtAST();
     ast->LVal = unique_ptr<BaseAST>($1);
     ast->Exp = unique_ptr<BaseAST>($3);
@@ -316,9 +317,32 @@ Stmt
     ast->branch.push_back($3);
     $$ = ast;
   }
-  | RETURN Exp ';' {
+  | Exp ';'{
+    printf("stmt in exp;\n");
     auto ast = new StmtAST();
+    ast->Exp = unique_ptr<BaseAST>($1);
+    ast->branch.push_back($1);
+    $$ = ast;
+  }
+  | ';' {
+    printf("stmt in ;\n");
+    auto ast = new StmtAST();
+    $$ = ast;
+  }
+  | Block {
+    printf("stmt in block\n");
+    auto ast = new StmtAST();
+    ast->block = unique_ptr<BaseAST>($1);
+    ast->branch.push_back($1);
+    $$ = ast;
+  }
+  | RETURN Exp ';' {
+    printf("stmt in return\n");
+    auto ast = new StmtAST();
+    auto ret_ast = new ReturnAST();
+    ret_ast->ret = "return";
     ast->Exp = unique_ptr<BaseAST>($2);
+    ast->branch.push_back(ret_ast);
     ast->branch.push_back($2);
     $$ = ast;
   }
@@ -361,6 +385,7 @@ UnaryExp
 
 LVal
   : IDENT {
+    printf("in lval\n");
     auto ast = new LValAST();
     ast->ident = *unique_ptr<string>($1);
     cout << ast->ident << endl;
@@ -376,7 +401,7 @@ PrimaryExp
     $$ = ast;
   }
   | LVal {
-    printf("in lval\n");
+    printf("primaryexp in lval\n");
     auto ast = new PrimaryExpAST();
     ast->LVal = unique_ptr<BaseAST>($1);
     cout << ast->type << endl;

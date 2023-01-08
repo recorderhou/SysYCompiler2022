@@ -21,9 +21,13 @@ extern FILE *yyout;
 extern int yyparse(unique_ptr<BaseAST> &ast);
 int var_count;
 int register_count; 
+int block_count;
 
 Symbol symm;
 SymTable sym_table;
+SymTableList sym_table_list;
+SymbolTable* cur_table = NULL;
+
 map<koopa_raw_function_t, int> func_sp; // 记录每个函数占据栈的大小
 map<koopa_raw_value_t, int> inst_sp; // 记录栈中每条指令的位置
 int cur_sp = 0;

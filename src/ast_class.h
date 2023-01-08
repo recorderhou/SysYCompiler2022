@@ -18,14 +18,26 @@ struct Symbol{
 
 typedef std::map<std::string, Symbol> SymTable;
 
+struct SymbolTable{
+    SymTable sym_table;
+    int table_index;
+    std::vector<SymbolTable *> child;
+    SymbolTable *parent;
+};
+
+typedef std::vector<SymbolTable> SymTableList;
+
 extern SymTable sym_table;
+extern SymTableList sym_table_list;
+extern int block_count;
+extern SymbolTable* cur_table;
 
 
 enum TYPE{
   _UnaryExp, _PrimaryExp, _UnaryOp, _Number, \
   _Exp, _MulExp, _AddExp, _RelExp, _EqExp, _LAndExp, _LOrExp, \
   _MultiConstDef, _ConstDef, _MultiBlockItem, _BlockItem, _Decl, _Stmt, \
-  _LVal, _ConstDecl, _VarDecl, _VarDef, _MultiVarDef, _Ident, 
+  _LVal, _ConstDecl, _VarDecl, _VarDef, _MultiVarDef, _Ident, _Return, _Block, 
 };
 
 // 所有 AST 的基类
@@ -74,7 +86,16 @@ class FuncDefAST : public BaseAST {
     // std::cout << "FuncDefAST { ";
     std::cout << "@" << ident << "(): ";
     func_type->Dump(ret_str);
+
+    ret_str += " { \n";
+    ret_str += "%entry:\n";
+    std::cout << " {" << std::endl;
+    std::cout << "%entry:" << std::endl;
+
     block->Dump(ret_str);
+
+    ret_str += "\n}";
+    std::cout << std::endl << "}";
     // std::cout << " }";
   }
 };
@@ -97,18 +118,31 @@ class FuncTypeAST : public BaseAST{
 // Block 也是 BaseAST
 class BlockAST : public BaseAST{
     public:
+    BlockAST(){
+        type = _Block;
+    }
     std::unique_ptr<BaseAST> multi_block_item;
     void Dump(std::string& ret_str) const override {
+        // 进入一个新block，初始化这个block的符号表
+        block_count ++;
+        SymbolTable symbol_table;
+        symbol_table.table_index = block_count;
+        symbol_table.parent = cur_table;
+        //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
+        cur_table = &symbol_table;
+        sym_table_list.push_back(symbol_table);
+
         std::cout << "BLOCK" << std::endl;
+        std::cout << "BLOCKCOUNT = " << std::to_string(block_count) << std::endl;
         // std::cout << "BlockAST { ";
-        ret_str += " { \n";
-        ret_str += "%entry:\n";
-        std::cout << " {" << std::endl;
-        std::cout << "%entry:" << std::endl;
         // if(!branch.empty())
         multi_block_item->Dump(ret_str);
-        ret_str += "\n}";
-        std::cout << std::endl << "}";
+
+        // 这个block结束，内部的block肯定耶已经结束
+        // 此时栈顶一定是当前block的符号表
+        // 退出是，一定回到parent block
+        cur_table = cur_table->parent;
+        sym_table_list.pop_back();
     }
 };
 
@@ -146,10 +180,11 @@ class BlockItemAST : public BaseAST{
     void Dump(std::string& ret_str) const override{
         std::cout << "BLOCKITEM" << std::endl;
         if(branch[0]->type == _Decl){
-            std::cout << "DECL" << std::endl;
+            std::cout << "BLOCKITEM - DECL" << std::endl;
             decl->Dump(ret_str);
         }
         else if(branch[0]->type == _Stmt){
+            std::cout << "BLOCKITEM - STMT" << std::endl;
             stmt->Dump(ret_str);
         }
     }
@@ -165,21 +200,37 @@ class LValAST : public BaseAST{
 
     }
     std::string Calc(std::string& ret_str) override{
-        std::cout << "LVALCALC" << std::endl;
-        Symbol tmp_ans = sym_table[ident];
+        std::cout << "LVALCALC "  << ident << std::endl;
+        int depth = cur_table->table_index;
+        SymbolTable *used_table = cur_table;
+
+        // 看看ident到底是哪儿定义的
+        while(used_table->sym_table.find(ident) == used_table->sym_table.end()){
+            used_table = used_table->parent;
+        }
+        depth = used_table->table_index;
+        Symbol tmp_ans = used_table->sym_table[ident];
+
         std::string ans;
         if(tmp_ans.type == _CONST){
             ans = std::to_string(tmp_ans.sym_val);
         }
         else if(tmp_ans.type == _NUM){
             std::cout << "NUM" << std::endl;
-            ans = "@" + ident;
+            ans = "@" + ident + "_" + std::to_string(depth);
         }
         return ans;
     }
     int Calc_val() override{
         std::cout << "LVALCALC" << std::endl;
-        Symbol tmp_ans = sym_table[ident];
+
+        SymbolTable *used_table = cur_table;
+        // 看看ident到底是哪儿定义的
+        while(used_table->sym_table.find(ident) == used_table->sym_table.end()){
+            used_table = used_table->parent;
+        }
+        Symbol tmp_ans = used_table->sym_table[ident];
+        // Symbol tmp_ans = cur_table->sym_table[ident];
         int ans = 0;
         if(tmp_ans.type != _STR){
             ans = tmp_ans.sym_val;
@@ -196,10 +247,14 @@ class StmtAST : public BaseAST{
     // int number;
     std::unique_ptr<BaseAST> LVal;
     std::unique_ptr<BaseAST> Exp;
+    std::unique_ptr<BaseAST> block;
     void Dump(std::string& ret_str) const override {
         std::cout << "STMT" << std::endl;
-        if (branch[0]->type == _Exp){
-            std::cout << "STMTEXP" << std::endl;
+        if(branch.size() == 0){
+            return;
+        }
+        else if (branch[0]->type == _Return){
+            std::cout << "STMTRETEXP" << std::endl;
             std::string ans;
             ans = Exp->Calc(ret_str);
             std::cout << "AAA" << std::endl;
@@ -235,6 +290,7 @@ class StmtAST : public BaseAST{
             }
         }
         else if (branch[0]->type == _LVal){
+            std::cout << "STMTLVAL" << std::endl;
             LValAST * cur_branch = (LValAST *)branch[0];
             std::string tmp1;
             std::string ans1;
@@ -243,10 +299,21 @@ class StmtAST : public BaseAST{
             int value;
             value = cur_branch->Calc_val();
 
+            // int depth = cur_table->table_index;
+            // cur table 会不会变？
+            SymbolTable* used_table = cur_table;
+
+            // 看看var_name到底是哪儿定义的
+            while(used_table->sym_table.find(var_name) == used_table->sym_table.end()){
+                used_table = used_table->parent;
+            }
+            // int depth = used_table->table_index;
+
             // 计算结果已经由Exp->Calc(ret_str)得出
             // 可以是数或%0
+            // 变量名已经由LVal->Calc(ret_str)整理好
+            ans2 = cur_branch->Calc(ret_str);
             tmp1 = Exp->Calc(ret_str);
-            ans2 = "@" + var_name;
 
             ans1 = tmp1;
 
@@ -272,7 +339,7 @@ class StmtAST : public BaseAST{
             Symbol symb;
             symb.type = _NUM;
             symb.sym_val = value;
-            sym_table[var_name] = symb;
+            used_table->sym_table[var_name] = symb; // 存到对应的symtable中
             
             ret_str += "    ";
             ret_str += "store ";
@@ -287,6 +354,15 @@ class StmtAST : public BaseAST{
             std::cout << ", ";
             std::cout << ans2;
             std::cout << "\n";
+        }
+        else if(branch[0]->type == _Exp){
+            std::cout << "STMTEXP" << std::endl;
+            std::string ans;
+            ans = Exp->Calc(ret_str);
+        }
+        else if(branch[0]->type == _Block){
+            std::cout << "STMTBLOCK" << std::endl;
+            block->Dump(ret_str);
         }
     }
 };
@@ -1366,16 +1442,29 @@ class ConstDefAST : public BaseAST{
         Symbol symb;
         symb.type = _CONST;
         symb.sym_val = ans;
-        sym_table[ident] = symb;
+        cur_table->sym_table[ident] = symb;
     }
 };
 
+// 没有实际作用，只是用于判断分支
 class IdentAST : public BaseAST {
     public:
     IdentAST(){
         type = _Ident;
     }
     std::string ident;
+    void Dump(std::string& ret_str) const override {
+
+    }
+};
+
+// 没有实际作用，只是用于判断分支
+class ReturnAST : public BaseAST {
+    public:
+    ReturnAST(){
+        type = _Return;
+    }
+    std::string ret;
     void Dump(std::string& ret_str) const override {
 
     }
@@ -1394,10 +1483,11 @@ class VarDefAST : public BaseAST{
             Symbol symb;
             symb.type = _UNK;
             symb.sym_val = 0;
-            sym_table[ident] = symb;
+            cur_table->sym_table[ident] = symb;
+            int depth = cur_table->table_index;
 
             std::string ans;
-            ans = "@" + ident;
+            ans = "@" + ident + "_" + std::to_string(depth);
 
             ret_str += "    ";
             ret_str += ans;
@@ -1418,10 +1508,11 @@ class VarDefAST : public BaseAST{
             Symbol symb;
             symb.type = _NUM;
             symb.sym_val = value;
-            sym_table[ident] = symb;
+            cur_table->sym_table[ident] = symb;
+            int depth = cur_table->table_index;
             // init_val->Dump(ret_str);
 
-            ans = "@" + ident;
+            ans = "@" + ident + "_" + std::to_string(depth);
             val = init_val->Calc(ret_str); // 可能是立即数，也可能是%0
 
             ret_str += "    ";
