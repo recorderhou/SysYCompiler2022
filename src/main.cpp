@@ -24,6 +24,10 @@ int register_count;
 
 Symbol symm;
 SymTable sym_table;
+map<koopa_raw_function_t, int> func_sp; // 记录每个函数占据栈的大小
+map<koopa_raw_value_t, int> inst_sp; // 记录栈中每条指令的位置
+int cur_sp = 0;
+koopa_raw_function_t cur_func;
 
 // 函数声明略
 // ...
@@ -34,7 +38,46 @@ void Visit(const koopa_raw_basic_block_t &bb);
 void Visit(const koopa_raw_value_t &value);
 void Visit(const koopa_raw_return_t &ret);
 void Visit(const koopa_raw_integer_t &integer);
-void Visit(const koopa_raw_binary_t &integer);
+void Visit(const koopa_raw_binary_t &binary);
+void Visit(const koopa_raw_store_t &store);
+void Visit(const koopa_raw_load_t &load);
+
+void Prologue(const koopa_raw_function_t &func);
+void Epilogue(const koopa_raw_function_t &func);
+
+void li_lw(const koopa_raw_value_t &value, string dest_reg);
+void sw(const koopa_raw_value_t &dest, string src_reg);
+
+void Prologue(koopa_raw_function_t &func){
+  int sp = func_sp[func];
+  if(sp){
+    cout << " addi  sp, sp, " + to_string(-sp) << endl;
+  }
+}
+
+void Epilogue(koopa_raw_function_t &func){
+  int sp = func_sp[func];
+  if(sp){
+    cout << " addi  sp, sp, " + to_string(sp) << endl;
+  }
+}
+
+void li_lw(const koopa_raw_value_t &value, string dest_reg="t0"){
+  if(inst_sp.find(value) == inst_sp.end()){
+    int number;
+    number = value->kind.data.integer.value;
+    cout << " li " << dest_reg << ", " << to_string(number) << endl;
+  }
+  else{ // 不是立即数，%0是指针指向对应指令
+    int cur_inst_sp = inst_sp[value];
+    cout << " lw " << dest_reg << ", " << to_string(cur_inst_sp) << "(sp)" << endl;
+  }
+}
+
+void sw(const koopa_raw_value_t &dest, string src_reg="t0"){
+  int cur_inst_sp = inst_sp[dest];
+  cout << " sw " << src_reg << ", " << to_string(cur_inst_sp) << "(sp)" << endl;
+}
 
 // 访问 raw program
 void Visit(const koopa_raw_program_t &program) {
@@ -54,6 +97,7 @@ void Visit(const koopa_raw_program_t &program) {
       cout << func->name[i];
     }
     cout << endl;
+
     Visit(func);
   }
 }
@@ -93,6 +137,24 @@ void Visit(const koopa_raw_function_t &func) {
   }
   cout << ":" << endl;
   for(size_t i = 0; i < func->bbs.len; ++ i){
+    koopa_raw_basic_block_t bb = (koopa_raw_basic_block_t) func->bbs.buffer[i];
+    for(size_t i = 0; i < bb->insts.len; ++ i){
+      koopa_raw_value_t inst = (koopa_raw_value_t) bb->insts.buffer[i];
+      if(inst->ty->tag != KOOPA_RTT_UNIT) {
+        inst_sp[inst] = cur_sp;
+        cur_sp += 4;
+      }
+    }
+  }
+  if(cur_sp % 16){
+    cur_sp = int((cur_sp / 16) + 1) * 16;
+  }
+  func_sp[func] = cur_sp;
+  cur_func = func;
+  if(cur_sp){
+    cout << " addi  sp, sp, " + to_string(-cur_sp) << endl;
+  }
+  for(size_t i = 0; i < func->bbs.len; ++ i){
     assert(func->bbs.kind == KOOPA_RSIK_BASIC_BLOCK);
     koopa_raw_basic_block_t bb = (koopa_raw_basic_block_t) func->bbs.buffer[i];
     Visit(bb);
@@ -126,6 +188,16 @@ void Visit(const koopa_raw_value_t &value) {
       break;
     case KOOPA_RVT_BINARY:
       Visit(kind.data.binary);
+      sw(value, "t0");
+      break;
+    case KOOPA_RVT_STORE:
+      Visit(kind.data.store);
+      break;
+    case KOOPA_RVT_LOAD:
+      Visit(kind.data.load);
+      sw(value, "t0");
+      break;
+    case KOOPA_RVT_ALLOC:
       break;
     default:
       // 其他类型暂时遇不到
@@ -136,26 +208,78 @@ void Visit(const koopa_raw_value_t &value) {
 // 访问对应类型指令的函数定义略
 // 视需求自行实现
 void Visit(const koopa_raw_return_t &ret){
-  cout << " mv  a0, t0" << endl;
+  koopa_raw_value_t value = ret.value;
+  li_lw(value, "a0");
   // 这里之前出过错
   // cout << ret.value->kind.data.integer.value << endl;
+  Epilogue(cur_func);
   cout << " ret" << endl;
 }
 
 // op, lhs, rhs
 void Visit(const koopa_raw_binary_t &binary) {
-  cout << "li   t0, " << binary.lhs->kind.data.integer.value << endl;
-  cout << "li   t1, " << binary.rhs->kind.data.integer.value << endl;
+  // cout << "li   t0, " << binary.lhs->kind.data.integer.value << endl;
+  // cout << "li   t1, " << binary.rhs->kind.data.integer.value << endl;
+  li_lw(binary.lhs, "t0");
+  li_lw(binary.rhs, "t1");
   if(binary.op == KOOPA_RBO_EQ){
-    cout << "xor  t0, t0, t1" << endl;
-    cout << "seqz t0, t0" << endl;
+    cout << " xor  t0, t0, t1" << endl;
+    cout << " seqz t0, t0" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_NOT_EQ){
+    cout << " xor  t0, t0, t1" << endl;
+    cout << " snez t0, t0" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_GT){
+    cout << " sgt  t0, t0, t1" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_LT){
+    cout << " slt  t0, t0, t1" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_GE){
+    cout << " slt  t0, t0, t1" << endl;
+    cout << " seqz  t0, t0" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_LE){
+    cout << " sgt  t0, t0, t1" << endl;
+    cout << " seqz  t0, t0" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_ADD){
+    cout << " add  t0, t0, t1" << endl;
   }
   else if(binary.op == KOOPA_RBO_SUB){
-    cout << "sub  t0, t0, t1" << endl;
+    cout << " sub  t0, t0, t1" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_MUL){
+    cout << " mul  t0, t0, t1" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_DIV){
+    cout << " div  t0, t0, t1" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_MOD){
+    cout << " rem  t0, t0, t1" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_AND){
+    cout << " and  t0, t0, t1" << endl;
+  }
+  else if(binary.op == KOOPA_RBO_OR){
+    cout << " or  t0, t0, t1" << endl;
   }
   // cout << binary.lhs->kind.tag << endl;
   // cout << "binary_lhs_ty" << binary.lhs->ty << endl;
   // cout << "bbinary_lhs_ty" << binary.rhs->ty << endl;
+}
+
+void Visit(const koopa_raw_store_t &store){
+  koopa_raw_value_t value = store.value;
+  koopa_raw_value_t dest = store.dest;
+  li_lw(value, "t0");
+  sw(dest, "t0");
+}
+
+void Visit(const koopa_raw_load_t &load){
+  koopa_raw_value_t src = load.src;
+  li_lw(src, "t0");
 }
 
 void Visit(const koopa_raw_integer_t &integer){

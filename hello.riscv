@@ -1,15 +1,11 @@
  .text
  .globl main
 main:
-li   t0, 0
-li   t1, 6
-xor  t0, t0, t1
-seqz t0, t0
-li   t0, 0
-li   t1, 1
-sub  t0, t0, t1
-li   t0, 0
-li   t1, 7
-sub  t0, t0, t1
- mv  a0, t0
+ addi  sp, sp, -16
+ li t0, 9
+ li t1, 3
+ bge  t0, t1, t0
+ sw t0, 0(sp)
+ lw a0, 0(sp)
+ addi  sp, sp, 16
  ret
