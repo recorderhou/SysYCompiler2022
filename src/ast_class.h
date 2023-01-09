@@ -21,6 +21,12 @@ typedef std::map<std::string, Symbol> SymTable;
 struct SymbolTable{
     SymTable sym_table;
     int table_index;
+    bool returned; // 是否已经出现了
+    bool blocking; 
+    // blocking = true的block, 它内部的return不会影响父节点和兄弟节点其他代码的生成
+    // 这样的block，在它之前parent是否return对它是有影响的
+    // blocking = false的block, 它内部的return会影响父节点和兄弟节点
+    // 并且一直影响到最近的blocking的祖先节点的家族
     std::vector<SymbolTable *> child;
     SymbolTable *parent;
 };
@@ -31,13 +37,17 @@ extern SymTable sym_table;
 extern SymTableList sym_table_list;
 extern int block_count;
 extern SymbolTable* cur_table;
+extern int end_count;
+extern int if_count;
+extern int else_count;
 
 
 enum TYPE{
   _UnaryExp, _PrimaryExp, _UnaryOp, _Number, \
   _Exp, _MulExp, _AddExp, _RelExp, _EqExp, _LAndExp, _LOrExp, \
   _MultiConstDef, _ConstDef, _MultiBlockItem, _BlockItem, _Decl, _Stmt, \
-  _LVal, _ConstDecl, _VarDecl, _VarDef, _MultiVarDef, _Ident, _Return, _Block, 
+  _LVal, _ConstDecl, _VarDecl, _VarDef, _MultiVarDef, _Ident, _Return, _Block, \
+  _OpenStmt, _MatchedStmt, 
 };
 
 // 所有 AST 的基类
@@ -123,11 +133,14 @@ class BlockAST : public BaseAST{
     }
     std::unique_ptr<BaseAST> multi_block_item;
     void Dump(std::string& ret_str) const override {
+        std::cout << int(NULL) << std::endl;
         // 进入一个新block，初始化这个block的符号表
         block_count ++;
         SymbolTable symbol_table;
         symbol_table.table_index = block_count;
         symbol_table.parent = cur_table;
+        symbol_table.returned = false;
+        symbol_table.blocking = false;
         //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
         cur_table = &symbol_table;
         sym_table_list.push_back(symbol_table);
@@ -136,11 +149,46 @@ class BlockAST : public BaseAST{
         std::cout << "BLOCKCOUNT = " << std::to_string(block_count) << std::endl;
         // std::cout << "BlockAST { ";
         // if(!branch.empty())
-        multi_block_item->Dump(ret_str);
 
+        // 如果之前已经出现一个non blocking的块出现return，那么一定是在这个块之前运行，因此这个块不用输出
+        // block之外的return，一定已经在进入block之前整理好
+        // 因此不需要在内部语句中涉及到其他block，内部语句只需要判断当前block的状态是否改变
+        SymbolTable *find_return_table = cur_table;
+        bool return_flag = false;
+        while(find_return_table){
+            if(find_return_table->returned){
+                return_flag = true;
+                break;
+            }
+            find_return_table = find_return_table->parent;
+        }
+        if(return_flag){
+            cur_table->returned = true;
+        }
+        
+        if(!cur_table->returned){
+            multi_block_item->Dump(ret_str);
+        }
+        
+        std::cout << "BLOCKFINISH" << std::endl;
         // 这个block结束，内部的block肯定耶已经结束
         // 此时栈顶一定是当前block的符号表
         // 退出是，一定回到parent block
+        // 如果当前block已经出现ret指令，那么一直影响到第一个blocking的祖先节点
+        if(cur_table->returned){
+            SymbolTable *ancestor_table = cur_table;
+            // 是否blocking->影响自己与parent节点的returned传递，并不影响自身
+            // 如果自身blocking，那么while循环退出，不再传递return给parent节点
+            while(!ancestor_table->blocking){
+                if(ancestor_table->parent){
+                    ancestor_table = ancestor_table->parent;
+                    ancestor_table->returned = true;
+                }
+                else{
+                    break;
+                }
+            }
+        }
         cur_table = cur_table->parent;
         sym_table_list.pop_back();
     }
@@ -179,6 +227,10 @@ class BlockItemAST : public BaseAST{
     std::unique_ptr<BaseAST> stmt;
     void Dump(std::string& ret_str) const override{
         std::cout << "BLOCKITEM" << std::endl;
+        // 所有语句都是从BlockItem解析得出，所以只需要在遇到blockitem时判断该条语句是否可以输出即可
+        if(cur_table->returned){
+            return;
+        }
         if(branch[0]->type == _Decl){
             std::cout << "BLOCKITEM - DECL" << std::endl;
             decl->Dump(ret_str);
@@ -241,15 +293,250 @@ class LValAST : public BaseAST{
     }
 };
 
-class StmtAST : public BaseAST{
+class StmtAST : public BaseAST {
     public:
-    StmtAST(){
+    StmtAST() {
         type = _Stmt;
+    }
+    std::unique_ptr<BaseAST> matched_stmt; 
+    std::unique_ptr<BaseAST> open_stmt;
+    void Dump(std::string& ret_str) const override {
+        if(branch[0]->type == _MatchedStmt){
+            matched_stmt->Dump(ret_str);
+        }
+        else if(branch[0]->type == _OpenStmt){
+            open_stmt->Dump(ret_str);
+        }
+    }
+};
+
+class OpenStmtAST : public BaseAST {
+    public:
+    OpenStmtAST() {
+        type = _OpenStmt;
+    }
+    std::unique_ptr<BaseAST> Exp;
+    std::unique_ptr<BaseAST> stmt;
+    std::unique_ptr<BaseAST> matched_stmt;
+    std::unique_ptr<BaseAST> open_stmt;
+    void Dump(std::string& ret_str) const override{
+        // if exp then stmt
+        if(branch.size() == 2){
+            /* if(exp) */
+            std::string tmp1 = Exp->Calc(ret_str);
+            std::string cond = tmp1;
+            std::string end = "%end_" + std::to_string(end_count);
+            std::string then = "%then_" + std::to_string(if_count);
+
+            end_count ++;
+            if_count ++;
+            if(tmp1[0] == '@'){
+                cond = "%" + std::to_string(var_count);
+                var_count ++;
+
+                ret_str += "    ";
+                ret_str += cond;
+                ret_str += " = ";
+                ret_str += "load ";
+                ret_str += tmp1;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << cond;
+                std::cout << " = ";
+                std::cout << "load ";
+                std::cout << tmp1;
+                std::cout << "\n";
+            }
+
+            ret_str += "    br    ";
+            ret_str += cond;
+            ret_str += ", ";
+            ret_str += then;
+            ret_str += ", ";
+            ret_str += end;
+            ret_str += "\n";
+
+            std::cout << "  br    ";
+            std::cout << cond;
+            std::cout << ", ";
+            std::cout << then;
+            std::cout << ", ";
+            std::cout << end;
+            std::cout << std::endl;
+
+            /* { */
+            // 初始化if分支的符号表
+            block_count ++;
+            SymbolTable symbol_table_if_then;
+            symbol_table_if_then.table_index = block_count;
+            symbol_table_if_then.parent = cur_table;
+            symbol_table_if_then.returned = false;
+            symbol_table_if_then.blocking = true; //if的{}是blocking的，在if内部return并不影响在main和else中return
+            //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
+            cur_table = &symbol_table_if_then;
+            sym_table_list.push_back(symbol_table_if_then);
+
+            ret_str += "\n";
+            ret_str += then;
+            ret_str += ":\n";
+            std::cout << std::endl;
+            std::cout << then;
+            std::cout << ":\n";
+            stmt->Dump(ret_str);
+
+            if(!cur_table->returned){
+                ret_str += "    jump    ";
+                ret_str += end;
+                std::cout << "    jump    ";
+                std::cout << end;
+            }
+
+            cur_table = cur_table->parent;
+            sym_table_list.pop_back();
+
+            /* } */
+
+            ret_str += "\n";
+            ret_str += end;
+            ret_str += ":\n";
+            std::cout << std::endl;
+            std::cout << end;
+            std::cout << ":\n";
+        }
+        else if(branch.size() == 3){ // if exp matched_stmt else open_stmt
+            /* if(exp) */
+            std::string tmp1 = Exp->Calc(ret_str);
+            std::string cond = tmp1;
+            std::string end = "%end_" + std::to_string(end_count);
+            std::string then = "%then_" + std::to_string(if_count);
+            std::string else_str = "%else_" + std::to_string(else_count);
+            end_count ++;
+            if_count ++;
+            else_count ++;
+            if(tmp1[0] == '@'){
+                cond = "%" + std::to_string(var_count);
+                var_count ++;
+
+                ret_str += "    ";
+                ret_str += cond;
+                ret_str += " = ";
+                ret_str += "load ";
+                ret_str += tmp1;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << cond;
+                std::cout << " = ";
+                std::cout << "load ";
+                std::cout << tmp1;
+                std::cout << "\n";
+            }
+            
+            ret_str += "    br    ";
+            ret_str += cond;
+            ret_str += ", ";
+            ret_str += then;
+            ret_str += ", ";
+            ret_str += else_str;
+            ret_str += "\n";
+
+            std::cout << "  br    ";
+            std::cout << cond;
+            std::cout << ", ";
+            std::cout << then;
+            std::cout << ", ";
+            std::cout << else_str;
+            std::cout << std::endl;
+
+            /* { */
+            // 初始化if分支的符号表
+            block_count ++;
+            SymbolTable symbol_table_if;
+            symbol_table_if.table_index = block_count;
+            symbol_table_if.parent = cur_table;
+            symbol_table_if.returned = false;
+            symbol_table_if.blocking = true; //if的{}是blocking的，在if内部return并不影响在main和else中return
+            //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
+            cur_table = &symbol_table_if;
+            sym_table_list.push_back(symbol_table_if);
+
+            ret_str += "\n";
+            ret_str += then;
+            ret_str += ":\n";
+            std::cout << std::endl;
+            std::cout << then;
+            std::cout << ":\n";
+            matched_stmt->Dump(ret_str);
+
+            if(!cur_table->returned){
+                ret_str += "    jump    ";
+                ret_str += end;
+                std::cout << "    jump    ";
+                std::cout << end;
+            }
+
+            cur_table = cur_table->parent;
+            sym_table_list.pop_back();
+            /* } */
+            
+            /* else {*/
+            // 初始化else分支的符号表
+            block_count ++;
+            SymbolTable symbol_table_else;
+            symbol_table_else.table_index = block_count;
+            symbol_table_else.parent = cur_table;
+            symbol_table_else.returned = false;
+            symbol_table_else.blocking = true; //if的{}是blocking的，在if内部return并不影响在main和else中return
+            //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
+            cur_table = &symbol_table_else;
+            sym_table_list.push_back(symbol_table_else);
+
+            ret_str += "\n";
+            ret_str += else_str;
+            ret_str += ":\n";
+            std::cout << std::endl;
+            std::cout << else_str;
+            std::cout << ":\n";
+            open_stmt->Dump(ret_str); 
+            // 虽然open_stmt内部的return一定不会传导到当前block（因为stmt可能的block均为blocking的block）
+            // 为了整齐，依然这么写了
+
+            if(!cur_table->returned){
+                std::cout << "WRONG RETURNED SPREAD" << std::endl;
+                ret_str += "    jump    ";
+                ret_str += end;
+                std::cout << "    jump    ";
+                std::cout << end;
+            }
+
+            cur_table = cur_table->parent;
+            sym_table_list.pop_back();
+            /* } */
+
+            ret_str += "\n";
+            ret_str += end;
+            ret_str += ":\n";
+            std::cout << std::endl;
+            std::cout << end;
+            std::cout << ":\n";
+        }
+    }
+
+};
+
+// matched_stmt可能解析出ret语句，所以所有可能解析出matched_stmt的语句都需要在内部判断是否还要继续生成下一个句子
+class MatchedStmtAST : public BaseAST{
+    public:
+    MatchedStmtAST(){
+        type = _MatchedStmt;
     }
     // int number;
     std::unique_ptr<BaseAST> LVal;
     std::unique_ptr<BaseAST> Exp;
     std::unique_ptr<BaseAST> block;
+    std::unique_ptr<BaseAST> matched_stmt_1;
+    std::unique_ptr<BaseAST> matched_stmt_2;
     void Dump(std::string& ret_str) const override {
         std::cout << "STMT" << std::endl;
         if(branch.size() == 0){
@@ -286,16 +573,23 @@ class StmtAST : public BaseAST{
 
                     ret_str += "    ret ";
                     ret_str += tmp;
+                    ret_str += "\n";
                     std::cout << "   ret ";
                     std::cout << tmp;
+                    std::cout << std:: endl;
                 }
                 else { // 立即数或%0
                     ret_str += "    ret ";
                     ret_str += ans;
+                    ret_str += "\n";
                     std::cout << "   ret ";
                     std::cout << ans;
+                    std::cout << std::endl;
                 }
             }
+            // 能进入这个ret语句，之前一定returned = false
+            // 已经输出一个ret语句，这个block内其他语句不能再生成
+            cur_table->returned = true;
         }
         else if (branch[0]->type == _LVal){
             std::cout << "STMTLVAL" << std::endl;
@@ -368,7 +662,135 @@ class StmtAST : public BaseAST{
         else if(branch[0]->type == _Exp){
             std::cout << "STMTEXP" << std::endl;
             std::string ans;
-            ans = Exp->Calc(ret_str);
+            if(branch.size() == 1){
+                ans = Exp->Calc(ret_str);
+            }
+            else if(branch.size() == 3){ // if exp then matched_stmt_1 else matched_stmt_2
+                // 每个if都可以有大括号，因此可以假定每个if是单独的一个block
+                // 本身有{}没关系，本身的{}由BlockAST初始化，blocking = false
+                // 退出该block时这个block会把return状况传递给我们手动设置的这个if block
+                // if(exp)本身在这个block外
+
+                /* if (exp) */
+
+                std::string tmp1 = Exp->Calc(ret_str);
+                std::string cond = tmp1;
+                std::string end = "%end_" + std::to_string(end_count);
+                std::string then = "%then_" + std::to_string(if_count);
+                std::string else_str = "%else_" + std::to_string(else_count);
+                end_count ++;
+                if_count ++;
+                else_count ++;
+
+                if(tmp1[0] == '@'){
+                    cond = "%" + std::to_string(var_count);
+                    var_count ++;
+
+                    ret_str += "    ";
+                    ret_str += cond;
+                    ret_str += " = ";
+                    ret_str += "load ";
+                    ret_str += tmp1;
+                    ret_str += "\n";
+
+                    std::cout << "    ";
+                    std::cout << cond;
+                    std::cout << " = ";
+                    std::cout << "load ";
+                    std::cout << tmp1;
+                    std::cout << "\n";
+                }
+                
+                ret_str += "    br    ";
+                ret_str += cond;
+                ret_str += ", ";
+                ret_str += then;
+                ret_str += ", ";
+                ret_str += else_str;
+                ret_str += "\n";
+
+                std::cout << "  br    ";
+                std::cout << cond;
+                std::cout << ", ";
+                std::cout << then;
+                std::cout << ", ";
+                std::cout << else_str;
+                std::cout << std::endl;
+
+                /* { */
+                // 初始化if分支的符号表
+                block_count ++;
+                SymbolTable symbol_table_if;
+                symbol_table_if.table_index = block_count;
+                symbol_table_if.parent = cur_table;
+                symbol_table_if.returned = false;
+                symbol_table_if.blocking = true; //if的{}是blocking的，在if内部return并不影响在main和else中return
+                //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
+                cur_table = &symbol_table_if;
+                sym_table_list.push_back(symbol_table_if);
+
+                ret_str += "\n";
+                ret_str += then;
+                ret_str += ":\n";
+                std::cout << std::endl;
+                std::cout << then;
+                std::cout << ":\n";
+                // 可能是ret
+                matched_stmt_1->Dump(ret_str);
+
+                if(!cur_table->returned){
+                    ret_str += "    jump    ";
+                    ret_str += end;
+                    std::cout << "    jump    ";
+                    std::cout << end;
+                }
+
+                // if 的block本身是blocking的，因此不需要更新parent及祖先节点的returned值
+                cur_table = cur_table->parent;
+                sym_table_list.pop_back();
+
+                /* } */
+
+                /* else { */
+                // 初始化else分支的符号表
+                block_count ++;
+                SymbolTable symbol_table_else;
+                symbol_table_else.table_index = block_count;
+                symbol_table_else.parent = cur_table;
+                symbol_table_else.returned = false;
+                symbol_table_else.blocking = true; //if的{}是blocking的，在if内部return并不影响在main和else中return
+                //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
+                cur_table = &symbol_table_else;
+                sym_table_list.push_back(symbol_table_else);
+
+                ret_str += "\n";
+                ret_str += else_str;
+                ret_str += ":\n";
+                std::cout << std::endl;
+                std::cout << else_str;
+                std::cout << ":\n";
+                matched_stmt_2->Dump(ret_str); // 可能有return
+
+                if(!cur_table->returned){
+                    ret_str += "    jump    ";
+                    ret_str += end;
+                    std::cout << "    jump    ";
+                    std::cout << end;
+                }
+                
+                // else的block本身是blocking的，因此不需要更新parent及祖先节点的returned值
+                cur_table = cur_table->parent;
+                sym_table_list.pop_back();
+
+                /* } */
+
+                ret_str += "\n";
+                ret_str += end;
+                ret_str += ":\n";
+                std::cout << std::endl;
+                std::cout << end;
+                std::cout << ":\n";
+            }
         }
         else if(branch[0]->type == _Block){
             std::cout << "STMTBLOCK" << std::endl;

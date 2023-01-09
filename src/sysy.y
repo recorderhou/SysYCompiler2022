@@ -37,7 +37,7 @@ using namespace std;
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
 %token INT RETURN
-%token <str_val> IDENT CONST LEQ GEQ NEQ EQ AND OR
+%token <str_val> IDENT CONST LEQ GEQ NEQ EQ AND OR IF ELSE
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
@@ -45,6 +45,7 @@ using namespace std;
 %type <ast_val> MulExp AddExp LOrExp LAndExp RelExp EqExp
 %type <ast_val> Decl ConstDecl BType MultiConstDef ConstDef ConstInitVal ConstExp MultiBlockItem BlockItem LVal 
 %type <ast_val> VarDecl MultiVarDef VarDef InitVal
+%type <ast_val> MatchedStmt OpenStmt
 // %type <int_val> Number
 %%
 
@@ -308,9 +309,45 @@ ConstExp
   ;
 
 Stmt
+  : MatchedStmt {
+    printf("stmt in matched stmt\n");
+    auto ast = new StmtAST();
+    ast->matched_stmt = unique_ptr<BaseAST>($1);
+    ast->branch.push_back($1);
+    $$ = ast;
+  }
+  | OpenStmt {
+    printf("stmt in open stmt\n");
+    auto ast = new StmtAST();
+    ast->open_stmt = unique_ptr<BaseAST>($1);
+    ast->branch.push_back($1);
+    $$ = ast;
+  }
+
+OpenStmt 
+  : IF '(' Exp ')' Stmt {
+    auto ast = new OpenStmtAST();
+    ast->Exp = unique_ptr<BaseAST>($3);
+    ast->stmt = unique_ptr<BaseAST>($5);
+    ast->branch.push_back($3);
+    ast->branch.push_back($5);
+    $$ = ast;
+  }
+  | IF '(' Exp ')' MatchedStmt ELSE OpenStmt {
+    auto ast = new OpenStmtAST();
+    ast->Exp = unique_ptr<BaseAST>($3);
+    ast->matched_stmt = unique_ptr<BaseAST>($5);
+    ast->open_stmt = unique_ptr<BaseAST>($7);
+    ast->branch.push_back($3);
+    ast->branch.push_back($5);
+    ast->branch.push_back($7);
+    $$ = ast;
+  }
+
+MatchedStmt
   : LVal '=' Exp ';' {
     printf("stmt in lval=exp\n");
-    auto ast = new StmtAST();
+    auto ast = new MatchedStmtAST();
     ast->LVal = unique_ptr<BaseAST>($1);
     ast->Exp = unique_ptr<BaseAST>($3);
     ast->branch.push_back($1);
@@ -319,26 +356,26 @@ Stmt
   }
   | Exp ';'{
     printf("stmt in exp;\n");
-    auto ast = new StmtAST();
+    auto ast = new MatchedStmtAST();
     ast->Exp = unique_ptr<BaseAST>($1);
     ast->branch.push_back($1);
     $$ = ast;
   }
   | ';' {
     printf("stmt in ;\n");
-    auto ast = new StmtAST();
+    auto ast = new MatchedStmtAST();
     $$ = ast;
   }
   | Block {
     printf("stmt in block\n");
-    auto ast = new StmtAST();
+    auto ast = new MatchedStmtAST();
     ast->block = unique_ptr<BaseAST>($1);
     ast->branch.push_back($1);
     $$ = ast;
   }
   | RETURN Exp ';' {
     printf("stmt in return\n");
-    auto ast = new StmtAST();
+    auto ast = new MatchedStmtAST();
     auto ret_ast = new ReturnAST();
     ret_ast->ret = "return";
     ast->Exp = unique_ptr<BaseAST>($2);
@@ -348,10 +385,20 @@ Stmt
   }
   | RETURN ';' {
     printf("stmt in return\n");
-    auto ast = new StmtAST();
+    auto ast = new MatchedStmtAST();
     auto ret_ast = new ReturnAST();
     ret_ast->ret = "return";
     ast->branch.push_back(ret_ast);
+    $$ = ast;
+  }
+  | IF '(' Exp ')' MatchedStmt ELSE MatchedStmt {
+    auto ast = new MatchedStmtAST();
+    ast->Exp = unique_ptr<BaseAST>($3);
+    ast->matched_stmt_1 = unique_ptr<BaseAST>($5);
+    ast->matched_stmt_2 = unique_ptr<BaseAST>($7);
+    ast->branch.push_back($3);
+    ast->branch.push_back($5);
+    ast->branch.push_back($7);
     $$ = ast;
   }
   | error {

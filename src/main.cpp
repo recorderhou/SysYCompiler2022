@@ -22,6 +22,9 @@ extern int yyparse(unique_ptr<BaseAST> &ast);
 int var_count;
 int register_count; 
 int block_count;
+int end_count;
+int if_count;
+int else_count;
 
 Symbol symm;
 SymTable sym_table;
