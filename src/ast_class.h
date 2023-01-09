@@ -1990,6 +1990,7 @@ class LOrExpAST : public BaseAST{
             std::cout << tmp_ans;
             std::cout << "\n";
 
+            /*
             ans = "%" + std::to_string(var_count);
             var_count ++;
             ret_str += "    ";
@@ -2009,7 +2010,7 @@ class LOrExpAST : public BaseAST{
             std::cout << ", ";
             std::cout << nb;
             std::cout << "\n";
-
+            */
         }
         return ans;
     }
