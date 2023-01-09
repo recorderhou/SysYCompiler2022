@@ -1,14 +1,20 @@
 fun @main(): i32 { 
 %entry:
-    br    0, %then_0, %else_0
-
+    %0 = eq  0, 3
+    %1 = eq  0, %0
+    %2 = eq  0, 4
+    %3 = eq  0, %2
+    @temp_result_0 = alloc i32
+    store 1, @temp_result_0
+    %4 = eq  0, %1
+    br  %4, %then_0, %end_0
 %then_0:
-    ret 1
-
-%else_0:
-    ret 2
-
+    %5 = ne  0, %3
+    store %5, @temp_result_0
+    jump %end_0
 %end_0:
-    ret 3
+    %6 = load @temp_result_0
+    %7 = or  %1, %3
+    ret %7
 
 }

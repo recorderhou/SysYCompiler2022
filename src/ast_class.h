@@ -40,6 +40,7 @@ extern SymbolTable* cur_table;
 extern int end_count;
 extern int if_count;
 extern int else_count;
+extern int tmp_result_count;
 
 
 enum TYPE{
@@ -777,7 +778,7 @@ class MatchedStmtAST : public BaseAST{
                     std::cout << "    jump    ";
                     std::cout << end;
                 }
-                
+
                 // else的block本身是blocking的，因此不需要更新parent及祖先节点的returned值
                 cur_table = cur_table->parent;
                 sym_table_list.pop_back();
@@ -1559,8 +1560,133 @@ class LAndExpAST : public BaseAST{
             std::cout << ans2;
             std::cout << "\n";
 
+            // 6.2
+            // 这个语句一定在matched_stmt内部，因此不会出现需要考虑ret的情况
+            std::string tmp_ans = "@temp_result_" + std::to_string(tmp_result_count);
+            tmp_result_count ++;
+            
+            ret_str += "    ";
+            ret_str += tmp_ans;
+            ret_str += " = ";
+            ret_str += "alloc i32\n";
+
+            std::cout << "    ";
+            std::cout << tmp_ans;
+            std::cout << " = ";
+            std::cout << "alloc i32\n";
+            
+            ret_str += "    store 0, ";
+            ret_str += tmp_ans;
+            ret_str += "\n";
+
+            std::cout << "    store 0, ";
+            std::cout << tmp_ans;
+            std::cout << "\n";
+
+            std::string tmp_lhs = "%" + std::to_string(var_count);
+            var_count ++;
+            std::string then = "%then_" + std::to_string(if_count);
+            std::string end = "%end_" + std::to_string(end_count);
+            if_count ++;
+            end_count ++;
+
+            ret_str += "    ";
+            ret_str += tmp_lhs;
+            ret_str += " = ";
+            ret_str += "ne  0, ";
+            ret_str += neqa;
+            ret_str += "\n";
+
+            std::cout << "    ";
+            std::cout << tmp_lhs;
+            std::cout << " = ";
+            std::cout << "ne  0, ";
+            std::cout << neqa;
+            std::cout << "\n";
+
+            ret_str += "    br  ";
+            ret_str += tmp_lhs;
+            ret_str += ", ";
+            ret_str += then;
+            ret_str += ", ";
+            ret_str += end;
+            ret_str += "\n";
+
+            std::cout << "  br  ";
+            std::cout << tmp_lhs;
+            std::cout << ", ";
+            std::cout << then;
+            std::cout << ", ";
+            std::cout << end;
+            std::cout << "\n";
+
+            ret_str += then;
+            ret_str += ":\n";
+
+            std::cout << then;
+            std::cout << ":\n";
+
+            std::string tmp_rhs = "%" + std::to_string(var_count);
+            var_count ++;
+
+            ret_str += "    ";
+            ret_str += tmp_rhs;
+            ret_str += " = ";
+            ret_str += "ne  0, ";
+            ret_str += neqb;
+            ret_str += "\n";
+
+            std::cout << "    ";
+            std::cout << tmp_rhs;
+            std::cout << " = ";
+            std::cout << "ne  0, ";
+            std::cout << neqb;
+            std::cout << "\n";
+
+            ret_str += "    store ";
+            ret_str += tmp_rhs;
+            ret_str += ", ";
+            ret_str += tmp_ans;
+            ret_str += "\n";
+
+            std::cout << "    store ";
+            std::cout << tmp_rhs;
+            std::cout << ", ";
+            std::cout << tmp_ans;
+            std::cout << "\n";
+
+            ret_str += "    jump ";
+            ret_str += end;
+            ret_str += "\n";
+
+            std::cout << "    jump ";
+            std::cout <<  end;
+            std::cout << "\n";
+
+            ret_str += end;
+            ret_str += ":\n";
+
+            std::cout << end;
+            std::cout << ":\n";
+
             ans = "%" + std::to_string(var_count);
             var_count ++;
+            
+            ret_str += "    ";
+            ret_str += ans;
+            ret_str += " = ";
+            ret_str += "load ";
+            ret_str += tmp_ans;
+            ret_str += "\n";
+
+            std::cout << "    ";
+            std::cout << ans;
+            std::cout << " = ";
+            std::cout << "load ";
+            std::cout << tmp_ans;
+            std::cout << "\n";
+
+            /*
             ret_str += "    ";
             ret_str += ans;
             ret_str += " = ";
@@ -1578,7 +1704,7 @@ class LAndExpAST : public BaseAST{
             std::cout << ", ";
             std::cout << neqb;
             std::cout << "\n";
-
+            */
         }
         return ans;
     }
@@ -1590,7 +1716,13 @@ class LAndExpAST : public BaseAST{
         }
         else if(branch[0]->type == _LAndExp){
             LAndExpAST * cur_branch = (LAndExpAST *) branch[0];
-            ans = cur_branch->Calc_val() && branch[1]->Calc_val();
+            ans = 0;
+            int tmp1 = cur_branch->Calc_val();
+            if(tmp1 != 0){
+                int tmp2 = branch[1]->Calc_val();
+                ans = (tmp2 != 0);
+            }
+            // ans = cur_branch->Calc_val() && branch[1]->Calc_val();
         }
         return ans;
     }
@@ -1733,6 +1865,131 @@ class LOrExpAST : public BaseAST{
             std::cout << eqb;
             std::cout << "\n";
 
+            // 6.2
+            std::string tmp_ans = "@temp_result_" + std::to_string(tmp_result_count);
+            tmp_result_count ++;
+            
+            ret_str += "    ";
+            ret_str += tmp_ans;
+            ret_str += " = ";
+            ret_str += "alloc i32\n";
+
+            std::cout << "    ";
+            std::cout << tmp_ans;
+            std::cout << " = ";
+            std::cout << "alloc i32\n";
+            
+            ret_str += "    store 1, ";
+            ret_str += tmp_ans;
+            ret_str += "\n";
+
+            std::cout << "    store 1, ";
+            std::cout << tmp_ans;
+            std::cout << "\n";
+
+            std::string tmp_lhs = "%" + std::to_string(var_count);
+            var_count ++;
+            std::string then = "%then_" + std::to_string(if_count);
+            std::string end = "%end_" + std::to_string(end_count);
+            if_count ++;
+            end_count ++;
+
+            ret_str += "    ";
+            ret_str += tmp_lhs;
+            ret_str += " = ";
+            ret_str += "eq  0, ";
+            ret_str += na;
+            ret_str += "\n";
+
+            std::cout << "    ";
+            std::cout << tmp_lhs;
+            std::cout << " = ";
+            std::cout << "eq  0, ";
+            std::cout << na;
+            std::cout << "\n";
+
+            ret_str += "    br  ";
+            ret_str += tmp_lhs;
+            ret_str += ", ";
+            ret_str += then;
+            ret_str += ", ";
+            ret_str += end;
+            ret_str += "\n";
+
+            std::cout << "  br  ";
+            std::cout << tmp_lhs;
+            std::cout << ", ";
+            std::cout << then;
+            std::cout << ", ";
+            std::cout << end;
+            std::cout << "\n";
+
+            ret_str += then;
+            ret_str += ":\n";
+
+            std::cout << then;
+            std::cout << ":\n";
+
+            std::string tmp_rhs = "%" + std::to_string(var_count);
+            var_count ++;
+
+            ret_str += "    ";
+            ret_str += tmp_rhs;
+            ret_str += " = ";
+            ret_str += "ne  0, ";
+            ret_str += nb;
+            ret_str += "\n";
+
+            std::cout << "    ";
+            std::cout << tmp_rhs;
+            std::cout << " = ";
+            std::cout << "ne  0, ";
+            std::cout << nb;
+            std::cout << "\n";
+
+            ret_str += "    store ";
+            ret_str += tmp_rhs;
+            ret_str += ", ";
+            ret_str += tmp_ans;
+            ret_str += "\n";
+
+            std::cout << "    store ";
+            std::cout << tmp_rhs;
+            std::cout << ", ";
+            std::cout << tmp_ans;
+            std::cout << "\n";
+
+            ret_str += "    jump ";
+            ret_str += end;
+            ret_str += "\n";
+
+            std::cout << "    jump ";
+            std::cout <<  end;
+            std::cout << "\n";
+
+            ret_str += end;
+            ret_str += ":\n";
+
+            std::cout << end;
+            std::cout << ":\n";
+
+            ans = "%" + std::to_string(var_count);
+            var_count ++;
+            
+            ret_str += "    ";
+            ret_str += ans;
+            ret_str += " = ";
+            ret_str += "load ";
+            ret_str += tmp_ans;
+            ret_str += "\n";
+
+            std::cout << "    ";
+            std::cout << ans;
+            std::cout << " = ";
+            std::cout << "load ";
+            std::cout << tmp_ans;
+            std::cout << "\n";
+
             ans = "%" + std::to_string(var_count);
             var_count ++;
             ret_str += "    ";
@@ -1764,7 +2021,13 @@ class LOrExpAST : public BaseAST{
         }
         else if(branch[0]->type == _LOrExp){
             LOrExpAST * cur_branch = (LOrExpAST *) branch[0];
-            ans = cur_branch->Calc_val() || branch[1]->Calc_val();
+            ans = 1;
+            int tmp1 = cur_branch->Calc_val();
+            if(tmp1 == 0){
+                int tmp2 = branch[1]->Calc_val();
+                ans = (tmp2 != 0);
+            }
+            // ans = cur_branch->Calc_val() || branch[1]->Calc_val();
         }
         return ans;
     }
@@ -1996,7 +2259,6 @@ class InitValAST : public BaseAST{
         return Exp->Calc_val();
     }
 };
-
 
 class ConstExpAST : public BaseAST{
     public:
