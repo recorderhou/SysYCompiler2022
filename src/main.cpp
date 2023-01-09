@@ -49,6 +49,8 @@ void Visit(const koopa_raw_integer_t &integer);
 void Visit(const koopa_raw_binary_t &binary);
 void Visit(const koopa_raw_store_t &store);
 void Visit(const koopa_raw_load_t &load);
+void Visit(const koopa_raw_branch_t &branch);
+void Visit(const koopa_raw_jump_t &jump);
 
 void Prologue(const koopa_raw_function_t &func);
 void Epilogue(const koopa_raw_function_t &func);
@@ -174,6 +176,12 @@ void Visit(const koopa_raw_basic_block_t &bb) {
   // 执行一些其他的必要操作
   // ...
   // 访问所有指令
+  // string bb_name = new string(bb->name);
+  int str_length = strlen(bb->name);
+  for(int i = 1; i < str_length; ++ i){
+    cout << bb->name[i];
+  }
+  cout << ":" << endl;
   for(size_t i = 0; i < bb->insts.len; ++ i){
     koopa_raw_value_t inst = (koopa_raw_value_t) bb->insts.buffer[i];
     Visit(inst);
@@ -205,6 +213,13 @@ void Visit(const koopa_raw_value_t &value) {
       Visit(kind.data.load);
       sw(value, "t0");
       break;
+    case KOOPA_RVT_BRANCH:
+      // cout << "in branch" << endl;
+      Visit(kind.data.branch);
+      break;
+    case KOOPA_RVT_JUMP:
+      Visit(kind.data.jump);
+      break;
     case KOOPA_RVT_ALLOC:
       break;
     default:
@@ -222,6 +237,35 @@ void Visit(const koopa_raw_return_t &ret){
   // cout << ret.value->kind.data.integer.value << endl;
   Epilogue(cur_func);
   cout << " ret" << endl;
+}
+
+void Visit(const koopa_raw_branch_t &branch) {
+  koopa_raw_value_t cond = branch.cond;
+  koopa_raw_basic_block_t true_bb = branch.true_bb;
+  koopa_raw_basic_block_t false_bb = branch.false_bb;
+  int true_length = strlen(true_bb->name);
+  int false_length = strlen(false_bb->name);
+  li_lw(cond, "t0");
+  cout << " bnez t0, ";
+  for(int i = 1; i < true_length; ++ i){
+    cout << true_bb->name[i];
+  }
+  cout << endl;
+  cout << " j  ";
+  for(int i = 1; i < false_length; ++ i){
+    cout << false_bb->name[i];
+  }
+  cout << "\n";
+}
+
+void Visit(const koopa_raw_jump_t &jump) {
+  koopa_raw_basic_block_t target = jump.target;
+  int str_length = strlen(target->name);
+  cout << " j  ";
+  for(int i = 1; i < str_length; ++ i){
+    cout << target->name[i];
+  }
+  cout << endl;
 }
 
 // op, lhs, rhs
