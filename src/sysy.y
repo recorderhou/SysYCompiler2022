@@ -323,6 +323,7 @@ Stmt
     ast->branch.push_back($1);
     $$ = ast;
   }
+  ;
 
 OpenStmt 
   : IF '(' Exp ')' Stmt {
@@ -343,6 +344,7 @@ OpenStmt
     ast->branch.push_back($7);
     $$ = ast;
   }
+  ;
 
 MatchedStmt
   : LVal '=' Exp ';' {
