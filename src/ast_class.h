@@ -41,6 +41,11 @@ extern int end_count;
 extern int if_count;
 extern int else_count;
 extern int tmp_result_count;
+extern int while_count;
+extern int cur_while;
+extern int cur_while_end;
+extern int prev_cur_while;
+extern bool break_continue;
 
 
 enum TYPE{
@@ -48,7 +53,7 @@ enum TYPE{
   _Exp, _MulExp, _AddExp, _RelExp, _EqExp, _LAndExp, _LOrExp, \
   _MultiConstDef, _ConstDef, _MultiBlockItem, _BlockItem, _Decl, _Stmt, \
   _LVal, _ConstDecl, _VarDecl, _VarDef, _MultiVarDef, _Ident, _Return, _Block, \
-  _OpenStmt, _MatchedStmt, 
+  _OpenStmt, _MatchedStmt, _Continue, _Break, 
 };
 
 // 所有 AST 的基类
@@ -302,10 +307,13 @@ class StmtAST : public BaseAST {
     std::unique_ptr<BaseAST> matched_stmt; 
     std::unique_ptr<BaseAST> open_stmt;
     void Dump(std::string& ret_str) const override {
+        std::cout << "STMT" << std::endl;
         if(branch[0]->type == _MatchedStmt){
+            std::cout << "STMT->MATCHED STMT" << std::endl;
             matched_stmt->Dump(ret_str);
         }
         else if(branch[0]->type == _OpenStmt){
+            std::cout << "STMT->OPEN STMT" << std::endl;
             open_stmt->Dump(ret_str);
         }
     }
@@ -538,8 +546,9 @@ class MatchedStmtAST : public BaseAST{
     std::unique_ptr<BaseAST> block;
     std::unique_ptr<BaseAST> matched_stmt_1;
     std::unique_ptr<BaseAST> matched_stmt_2;
+    std::unique_ptr<BaseAST> stmt;
     void Dump(std::string& ret_str) const override {
-        std::cout << "STMT" << std::endl;
+        std::cout << "MATCHED STMT" << std::endl;
         if(branch.size() == 0){
             return;
         }
@@ -665,6 +674,138 @@ class MatchedStmtAST : public BaseAST{
             std::string ans;
             if(branch.size() == 1){
                 ans = Exp->Calc(ret_str);
+            }
+            else if(branch.size() == 2){ // while exp stmt
+                std::cout << "WHILE BRANCH" << std::endl;
+                std::string while_entry = "%while_entry_" + std::to_string(while_count);
+                std::string while_body = "%while_body_" + std::to_string(while_count);
+                std::string while_to_entry = "%while_to_entry_" + std::to_string(while_count);
+                std::string while_end = "%while_end_" + std::to_string(while_count);
+                std::string tmp1;
+                std::string cond;
+                prev_cur_while = cur_while;
+                cur_while = while_count;
+                cur_while_end = end_count;
+                while_count ++;
+                // end_count ++;
+
+                ret_str += "    jump    ";
+                ret_str += while_entry;
+                ret_str += "\n";
+
+                std::cout << "  jump    ";
+                std::cout << while_entry;
+                std::cout << "\n";
+
+                /* while (exp) */
+                ret_str += while_entry;
+                ret_str += ":\n";
+
+                std::cout << while_entry;
+                std::cout << ":\n";
+
+                tmp1 = Exp->Calc(ret_str);
+                cond = tmp1;
+
+                if(tmp1[0] == '@'){
+                    cond = "%" + std::to_string(var_count);
+                    var_count ++;
+
+                    ret_str += "    ";
+                    ret_str += cond;
+                    ret_str += " = ";
+                    ret_str += "load ";
+                    ret_str += tmp1;
+                    ret_str += "\n";
+
+                    std::cout << "    ";
+                    std::cout << cond;
+                    std::cout << " = ";
+                    std::cout << "load ";
+                    std::cout << tmp1;
+                    std::cout << "\n";
+                }
+
+                ret_str += "    br    ";
+                ret_str += cond;
+                ret_str += ", ";
+                ret_str += while_body;
+                ret_str += ", ";
+                ret_str += while_end;
+                ret_str += "\n";
+
+                std::cout << "  br    ";
+                std::cout << cond;
+                std::cout << ", ";
+                std::cout << while_body;
+                std::cout << ", ";
+                std::cout << while_end;
+                std::cout << std::endl;
+
+                /* { */
+                // 初始化while分支的符号表
+                block_count ++;
+                SymbolTable symbol_table_while;
+                symbol_table_while.table_index = block_count;
+                symbol_table_while.parent = cur_table;
+                symbol_table_while.returned = false;
+                symbol_table_while.blocking = true; 
+                // while的{}不是blocking的
+                // 在while内部return，也是在parent节点中return
+                //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
+                cur_table = &symbol_table_while;
+                sym_table_list.push_back(symbol_table_while);
+
+                ret_str += while_body;
+                ret_str += ":\n";
+
+                std::cout << while_body;
+                std::cout << ":\n";
+
+                bool last_break_continue = break_continue;
+                break_continue = false;
+                stmt->Dump(ret_str); // 
+
+                std::cout << "WHILE STMT RETURN" << std::endl;
+
+                if(!cur_table->returned){
+                    ret_str += "    jump    ";
+                    ret_str += while_entry;
+                    std::cout << "    jump    ";
+                    std::cout << while_entry;
+                }
+
+                break_continue = last_break_continue;
+
+                // while {}不是blocking的，因此需要把信息传递给parent节点和祖先节点
+                // 如果当前block已经出现ret指令，那么一直影响到第一个blocking的祖先节点
+                /*if(cur_table->returned){
+                    SymbolTable *ancestor_table = cur_table;
+                    // 是否blocking->影响自己与parent节点的returned传递，并不影响自身
+                    // 如果自身blocking，那么while循环退出，不再传递return给parent节点
+                    while(!ancestor_table->blocking){
+                        if(ancestor_table->parent){
+                            ancestor_table = ancestor_table->parent;
+                            ancestor_table->returned = true;
+                        }
+                        else{
+                            break;
+                        }
+                    }
+                }*/
+                cur_table = cur_table->parent;
+                sym_table_list.pop_back();
+                /* } */
+
+                ret_str += "\n";
+                ret_str += while_end;
+                ret_str += ":\n";
+                std::cout << std::endl;
+                std::cout << while_end;
+                std::cout << ":\n";
+
+                cur_while = prev_cur_while;
+
             }
             else if(branch.size() == 3){ // if exp then matched_stmt_1 else matched_stmt_2
                 // 每个if都可以有大括号，因此可以假定每个if是单独的一个block
@@ -796,6 +937,42 @@ class MatchedStmtAST : public BaseAST{
         else if(branch[0]->type == _Block){
             std::cout << "STMTBLOCK" << std::endl;
             block->Dump(ret_str);
+        }
+        else if(branch[0]->type == _Break){
+            break_continue = true;
+            std::string break_end = "%while_end_" + std::to_string(cur_while);
+            std::string break_follow = "%follow_break_" + std::to_string(cur_while);
+            ret_str += "    jump    ";
+            ret_str += break_end;
+            ret_str += "\n";
+
+            std::cout << "    jump    ";
+            std::cout <<  break_end;
+            std::cout << "\n";
+
+            ret_str += break_follow;
+            ret_str += ":\n";
+
+            std::cout << break_follow;
+            std::cout << ":\n";
+        }
+        else if(branch[0]->type == _Continue){
+            break_continue = true;
+            std::string continue_head = "%while_entry_" + std::to_string(cur_while);
+            std::string continue_follow = "%follow_continue_" + std::to_string(cur_while);
+            ret_str += "    jump    ";
+            ret_str += continue_head;
+            ret_str += "\n";
+
+            std::cout <<  "    jump    ";
+            std::cout <<  continue_head;
+            std::cout <<  "\n";
+
+            ret_str += continue_follow;
+            ret_str += ":\n";
+
+            std::cout << continue_follow;
+            std::cout << ":\n";
         }
     }
 };
@@ -2161,6 +2338,30 @@ class ReturnAST : public BaseAST {
         type = _Return;
     }
     std::string ret;
+    void Dump(std::string& ret_str) const override {
+
+    }
+};
+
+// 没有实际作用，只是用于判断分支
+class BreakAST : public BaseAST {
+    public:
+    BreakAST() {
+        type = _Break;
+    }
+    std::string break_str;
+    void Dump(std::string& ret_str) const override {
+
+    }
+};
+
+// 没有实际作用，只是用于判断分支
+class ContinueAST : public BaseAST {
+    public:
+    ContinueAST() {
+        type = _Continue;
+    }
+    std::string continue_str;
     void Dump(std::string& ret_str) const override {
 
     }

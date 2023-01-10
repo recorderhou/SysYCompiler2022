@@ -1,10 +1,27 @@
 int main() {
-  int a = 2;
-  if (a) {
-    a = a + 1;
-  } else a = 0;  // 在实际写 C/C++ 程序的时候别这样, 建议 if 的分支全部带大括号
-  return a;
+  while (1) {
+    int a = 1, b = 2;
+    {
+      if (a == 1) {
+        while (a < b) {
+          while (a < b || b - 1 == 0) {
+            a = a + 1;
+          }
+          b = 1;
+          a = a + 1;
+          if (3) continue;
+        }
+      } else if (b == 6) {
+        break;
+      }
+      int b = 6;
+      if (b == 6) return 8 * (10 || b);
+      else while (0);
+    }
+  }
+  return -1;
 }
+
 
 
 

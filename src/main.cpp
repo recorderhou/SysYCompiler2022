@@ -25,7 +25,12 @@ int block_count = 0;
 int end_count = 0;
 int if_count = 0;
 int else_count = 0;
-int tmp_result_count = 0;
+int tmp_result_count = 0; // 用于短路求值
+int while_count = 0;
+int prev_cur_while = 0;
+int cur_while;
+int cur_while_end;
+bool break_continue = false;
 
 Symbol symm;
 SymTable sym_table;

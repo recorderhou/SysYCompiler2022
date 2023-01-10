@@ -37,7 +37,7 @@ using namespace std;
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
 %token INT RETURN
-%token <str_val> IDENT CONST LEQ GEQ NEQ EQ AND OR IF ELSE
+%token <str_val> IDENT CONST LEQ GEQ NEQ EQ AND OR IF ELSE WHILE BREAK CONTINUE
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
@@ -399,6 +399,30 @@ MatchedStmt
     ast->branch.push_back($3);
     ast->branch.push_back($5);
     ast->branch.push_back($7);
+    $$ = ast;
+  }
+  | WHILE '(' Exp ')' Stmt {
+    printf("in while\n");
+    auto ast = new MatchedStmtAST();
+    ast->Exp = unique_ptr<BaseAST>($3);
+    ast->stmt = unique_ptr<BaseAST>($5);
+    ast->branch.push_back($3);
+    ast->branch.push_back($5);
+    $$ = ast;
+  }
+  | BREAK ';' {
+    printf("in break\n");
+    auto ast = new MatchedStmtAST();
+    auto break_ast = new BreakAST();
+    break_ast->break_str = "break";
+    ast->branch.push_back(break_ast);
+    $$ = ast;
+  }
+  | CONTINUE ';' {
+    auto ast = new MatchedStmtAST();
+    auto continue_ast = new ContinueAST();
+    continue_ast->continue_str = "continue";
+    ast->branch.push_back(continue_ast);
     $$ = ast;
   }
   | error {
