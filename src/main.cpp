@@ -138,14 +138,11 @@ void sw(const koopa_raw_value_t &dest, string src_reg="t0"){
 void Visit(const koopa_raw_program_t &program) {
   riscv_str.clear();
   // 执行一些其他的必要操作
-  cout << " .data " << endl;
-  cout << " .globl ";
-
-  riscv_str += " .data \n";
-  riscv_str += " .globl ";
 
   for(size_t i = 0; i < program.values.len; ++ i){
     assert(program.values.kind == KOOPA_RSIK_VALUE);
+    cout << " .data " << endl;
+    cout << " .globl ";
     koopa_raw_value_t value = (koopa_raw_value_t) program.values.buffer[i];
     for(int i = 1; i < strlen(value->name); ++ i){
       cout << value->name[i];

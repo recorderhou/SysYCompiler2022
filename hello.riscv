@@ -2,7 +2,8 @@
  .globl x_global
 x_global:
  .zero 4
-init_global
+ .data 
+ .globl init_global
 init_global:
  .word 1
 
