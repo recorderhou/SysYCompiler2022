@@ -6,17 +6,22 @@ decl @putch(i32)
 decl @putarray(i32, *i32)
 decl @starttime()
 decl @stoptime()
-    global @a_global = alloc i32, 10
-fun @inc() : i32 { 
+fun @half(@x : i32) : i32 { 
 %entry:
-    %0 = load @a_global
-    %1 = add %0, 1
-    store %1, @a_global
-    %2 = load @a_global
-    ret %2
+    %x_half_1 = alloc i32
+    store @x, %x_half_1
+    %0 = load %x_half_1
+    %1 = div %0, 2
+    ret %1
+}
+fun @f()  { 
+%entry:
+    ret 
 }
 fun @main() : i32 { 
 %entry:
-    ret 0
+    call @f()
+    %2 = call @half(10)
+    ret %2
 }
 

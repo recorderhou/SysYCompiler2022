@@ -1,11 +1,11 @@
-int a = 10;
-
-int inc() {
-	a = a + 1;
-  	return a;
+int half(int x) {
+  return x / 2;
 }
 
+void f() {}
+
 int main() {
-  return 0;
+  f();
+  return half(10);
 }
 
