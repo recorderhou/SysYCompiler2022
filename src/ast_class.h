@@ -1218,11 +1218,15 @@ class MatchedStmtAST : public BaseAST{
             std::cout <<  break_end;
             std::cout << "\n";
 
+            cur_table->returned = true;
+
+            /*
             ret_str += break_follow;
             ret_str += ":\n";
 
             std::cout << break_follow;
             std::cout << ":\n";
+            */
         }
         else if(branch[0]->type == _Continue){
             break_continue = true;
@@ -1236,11 +1240,15 @@ class MatchedStmtAST : public BaseAST{
             std::cout <<  continue_head;
             std::cout <<  "\n";
 
+            cur_table->returned = true;
+
+            /*
             ret_str += continue_follow;
             ret_str += ":\n";
 
             std::cout << continue_follow;
             std::cout << ":\n";
+            */
         }
     }
 };
