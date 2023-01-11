@@ -37,15 +37,16 @@ using namespace std;
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
 %token INT RETURN
-%token <str_val> IDENT CONST LEQ GEQ NEQ EQ AND OR IF ELSE WHILE BREAK CONTINUE
+%token <str_val> IDENT CONST LEQ GEQ NEQ EQ AND OR IF ELSE WHILE BREAK CONTINUE VOID
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef FuncType Block Stmt Number Exp UnaryExp PrimaryExp UnaryOp 
+%type <ast_val> CompUnit FuncDef FuncType Block Stmt Number Exp UnaryExp PrimaryExp UnaryOp 
 %type <ast_val> MulExp AddExp LOrExp LAndExp RelExp EqExp
 %type <ast_val> Decl ConstDecl BType MultiConstDef ConstDef ConstInitVal ConstExp MultiBlockItem BlockItem LVal 
 %type <ast_val> VarDecl MultiVarDef VarDef InitVal
 %type <ast_val> MatchedStmt OpenStmt
+%type <ast_val> MultiFuncFParam MultiFuncRParam FuncFParam
 // %type <int_val> Number
 %%
 
@@ -54,12 +55,46 @@ using namespace std;
 // 而 parser 一旦解析完 CompUnit, 就说明所有的 token 都被解析了, 即解析结束了
 // 此时我们应该把 FuncDef 返回的结果收集起来, 作为 AST 传给调用 parser 的函数
 // $1 指代规则里第一个符号的返回值, 也就是 FuncDef 的返回值
-CompUnit
-  : FuncDef {
-    auto comp_unit = make_unique<CompUnitAST>();
-    comp_unit->func_def = unique_ptr<BaseAST>($1);
-    ast = move(comp_unit);
+ProgramUnit
+  : CompUnit {
+    auto program_unit = make_unique<ProgramUnitAST>();
+    program_unit->comp_unit = unique_ptr<BaseAST>($1);
+    program_unit->branch.push_back($1);
+    ast = move(program_unit);
+    printf("parser finish\n");
   }
+  ;
+CompUnit
+  : CompUnit FuncDef {
+    printf("in compunit funcdef\n");
+    auto comp_unit = new CompUnitAST();
+    comp_unit->inner_comp_unit = unique_ptr<BaseAST>($1);
+    comp_unit->func_def = unique_ptr<BaseAST>($2);
+    comp_unit->branch.push_back($1);
+    comp_unit->branch.push_back($2);
+    $$ = comp_unit;
+  }
+  /*| CompUnit Decl {
+    auto comp_unit = new CompUnitAST();
+    comp_unit->inner_comp_unit = unique_ptr<BaseAST>($1);
+    comp_unit->decl = unique_ptr<BaseAST>($2);
+    comp_unit->branch.push_back($1);
+    comp_unit->branch.push_back($2);
+    $$ = comp_unit;
+  }*/
+  | FuncDef {
+    printf("in funcdef\n");
+    auto comp_unit = new CompUnitAST();
+    comp_unit->func_def = unique_ptr<BaseAST>($1);
+    comp_unit->branch.push_back($1);
+    $$ = comp_unit;
+  }
+  /*| Decl {
+    auto comp_unit = new CompUnitAST();
+    comp_unit->decl = unique_ptr<BaseAST>($1);
+    comp_unit->branch.push_back($1);
+    $$ = comp_unit;
+  }*/
   | error {
     printf("error CompUnit, unbelievable\n");
   }
@@ -76,23 +111,48 @@ CompUnit
 // 虽然此处你看不出用 unique_ptr 和手动 delete 的区别, 但当我们定义了 AST 之后
 // 这种写法会省下很多内存管理的负担
 FuncDef
-  : FuncType IDENT '(' ')' Block {
+  : FuncType IDENT '(' MultiFuncFParam ')' Block{
+    printf("in funcdef\n");
+    auto ast = new FuncDefAST();
+    ast->func_type = unique_ptr<BaseAST>($1);
+    ast->ident = *unique_ptr<string>($2);
+    cout << "funcdef-ident" << ast->ident << endl;
+    ast->multi_funcf_params = unique_ptr<BaseAST>($4);
+    printf("funcdef-param finish\n");
+    ast->block = unique_ptr<BaseAST>($6);
+    printf("funcdef block-finish\n");
+    auto ident_ast = new IdentAST();
+    ident_ast->ident = ast->ident;
+    ast->branch.push_back($1);
+    ast->branch.push_back(ident_ast);
+    ast->branch.push_back($4);
+    ast->branch.push_back($6);
+    $$ = ast;
+  } 
+  | error {
+    printf("error FuncDef, unbelievable\n");
+  }
+  ;
+/*| FuncType IDENT '(' ')' Block {
     auto ast = new FuncDefAST();
     ast->func_type = unique_ptr<BaseAST>($1);
     ast->ident = *unique_ptr<string>($2);
     ast->block = unique_ptr<BaseAST>($5);
     $$ = ast;
-  }
-  | error {
-    printf("error FuncDef, unbelievable\n");
-  }
-  ;
+  }*/
 
 // 同上, 不再解释
 FuncType
   : INT {
+    printf("functype in int\n");
     auto ast = new FuncTypeAST();
     ast->func_type_str = string("int");
+    $$ = ast;
+  }
+  | VOID {
+    printf("functype in void\n");
+    auto ast = new FuncTypeAST();
+    ast->func_type_str = "void";
     $$ = ast;
   }
   | error {
@@ -100,8 +160,46 @@ FuncType
   }
   ;
 
+MultiFuncFParam
+  : /* NULL */ {
+    printf("in null funcfparam\n");
+    auto ast = new MultiFuncFParamAST();
+    printf("in null funcfparam finish\n");
+    $$ = ast;
+  }
+  | FuncFParam {
+    printf("in single funcfparam\n");
+    auto ast = new MultiFuncFParamAST();
+    ast->funcf_param = unique_ptr<BaseAST>($1);
+    ast->branch.push_back($1);
+    $$ = ast;
+  }
+  | MultiFuncFParam ',' FuncFParam {
+    auto ast = new MultiFuncFParamAST();
+    ast->multi_funcf_param = unique_ptr<BaseAST>($1);
+    ast->funcf_param = unique_ptr<BaseAST>($3);
+    ast->branch.push_back($1);
+    ast->branch.push_back($3);
+    $$ = ast;
+  }
+  ;
+
+FuncFParam
+  : BType IDENT {
+    auto ast = new FuncFParamAST();
+    ast->btype = unique_ptr<BaseAST>($1);
+    ast->ident = *unique_ptr<string>($2);
+    auto ident_ast = new IdentAST();
+    ident_ast->ident = ast->ident;
+    ast->branch.push_back($1);
+    ast->branch.push_back(ident_ast);
+    $$ = ast;
+  }
+  ;
+
 Block
   : '{' MultiBlockItem '}' {
+    printf("in multiblockitem\n");
     auto ast = new BlockAST();
     ast->multi_block_item = unique_ptr<BaseAST>($2);
     ast->branch.push_back($2);
@@ -293,6 +391,7 @@ ConstInitVal
 
 InitVal
   : Exp {
+    printf("initval in exp");
     auto ast = new InitValAST();
     ast->Exp = unique_ptr<BaseAST>($1);
     $$ = ast;
@@ -301,7 +400,7 @@ InitVal
 
 ConstExp
   : Exp {
-    printf("in constexp\n");
+    printf("constexp in exp\n");
     auto ast = new ConstExpAST();
     ast->Exp = unique_ptr<BaseAST>($1);
     $$ = ast;
@@ -327,6 +426,7 @@ Stmt
 
 OpenStmt 
   : IF '(' Exp ')' Stmt {
+    printf("openstmt in if(exp) stmt\n");
     auto ast = new OpenStmtAST();
     ast->Exp = unique_ptr<BaseAST>($3);
     ast->stmt = unique_ptr<BaseAST>($5);
@@ -335,6 +435,7 @@ OpenStmt
     $$ = ast;
   }
   | IF '(' Exp ')' MatchedStmt ELSE OpenStmt {
+    printf("openstmt in if(exp) matched else open\n");
     auto ast = new OpenStmtAST();
     ast->Exp = unique_ptr<BaseAST>($3);
     ast->matched_stmt = unique_ptr<BaseAST>($5);
@@ -376,7 +477,7 @@ MatchedStmt
     $$ = ast;
   }
   | RETURN Exp ';' {
-    printf("stmt in return\n");
+    printf("stmt in return exp\n");
     auto ast = new MatchedStmtAST();
     auto ret_ast = new ReturnAST();
     ret_ast->ret = "return";
@@ -394,6 +495,7 @@ MatchedStmt
     $$ = ast;
   }
   | IF '(' Exp ')' MatchedStmt ELSE MatchedStmt {
+    printf("matchedstmt in if(exp) match else match\n");
     auto ast = new MatchedStmtAST();
     ast->Exp = unique_ptr<BaseAST>($3);
     ast->matched_stmt_1 = unique_ptr<BaseAST>($5);
@@ -404,7 +506,7 @@ MatchedStmt
     $$ = ast;
   }
   | WHILE '(' Exp ')' Stmt {
-    printf("in while\n");
+    printf("matchedstmt in while exp stmt\n");
     auto ast = new MatchedStmtAST();
     ast->Exp = unique_ptr<BaseAST>($3);
     ast->stmt = unique_ptr<BaseAST>($5);
@@ -440,6 +542,7 @@ Exp
     $$ = ast;
   }
   | error {
+    // cout << ast->lor_exp->type << endl;
     printf("error Exp, unbelievable\n");
   }
   ;
@@ -462,6 +565,45 @@ UnaryExp
     ast->branch.push_back($2);
     $$ = ast;
   }
+  | IDENT '(' MultiFuncRParam ')' {
+    printf("unary in ident(multifuncrparam)\n");
+    auto ast = new UnaryExpAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->multi_funcr_param = unique_ptr<BaseAST>($3);
+    auto ident_ast = new IdentAST();
+    ident_ast->ident = ast->ident;
+    ast->branch.push_back(ident_ast);
+    ast->branch.push_back($3);
+    printf("unary in ident(multi) finish\n");
+    $$ = ast;
+  }
+  ;
+
+MultiFuncRParam
+  : /* NULL */ {
+    auto ast = new MultiFuncRParamAST();
+    $$ = ast;
+  }
+  | MultiFuncRParam ',' Exp {
+    printf("multifuncrparam in rparam,exp\n");
+    auto ast = new MultiFuncRParamAST();
+    ast->multi_funcr_param = unique_ptr<BaseAST>($1);
+    ast->Exp = unique_ptr<BaseAST>($3);
+    ast->branch.push_back($1);
+    ast->branch.push_back($3);
+    $$ = ast;
+  }
+  | Exp {
+    printf("multifuncrparam in exp\n");
+    auto ast = new MultiFuncRParamAST();
+    ast->Exp = unique_ptr<BaseAST>($1);
+    ast->branch.push_back($1);
+    printf("multifuncrparam in exp finish\n");
+    $$ = ast;
+  }
+  | error {
+    printf("error in funcr\n");
+  }
   ;
 
 LVal
@@ -476,6 +618,7 @@ LVal
 
 PrimaryExp
   : '(' Exp ')' {
+    printf("primary exp in (Exp)\n");
     auto ast = new PrimaryExpAST();
     ast->Exp = unique_ptr<BaseAST>($2);
     ast->branch.push_back($2);

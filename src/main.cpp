@@ -34,8 +34,13 @@ bool break_continue = false;
 
 Symbol symm;
 SymTable sym_table;
+FuncTable func_table;
+GlobalVarTable global_var_table;
 SymTableList sym_table_list;
+ProgramSymTableList program_sym_table;
 SymbolTable* cur_table = NULL;
+SymTableList* cur_sym_table_list;
+std::string cur_func_name = "default_global";
 
 map<koopa_raw_function_t, int> func_sp; // 记录每个函数占据栈的大小
 map<koopa_raw_value_t, int> inst_sp; // 记录栈中每条指令的位置

@@ -6,8 +6,16 @@
 #include <map>
 
 extern int var_count;
+
+// 参数param，全局变量，以及初始化/赋值时使用参数和全局变量的
 enum SYM_TYPE{
-    _CONST, _NUM, _STR, _UNK, 
+    _CONST, _NUM, _STR, _UNK, _PARAM, _GLOBAL, _NUM_UNCALC, _CONST_UNCALC, 
+};
+
+struct RetVal {
+    bool calcable;
+    int value;
+    std::string sym_str; 
 };
 
 struct Symbol{
@@ -17,9 +25,12 @@ struct Symbol{
 };
 
 typedef std::map<std::string, Symbol> SymTable;
+typedef std::map<std::string, std::string> FuncTable;
+typedef std::map<std::string, Symbol> GlobalVarTable;
 
 struct SymbolTable{
     SymTable sym_table;
+    std::string func_name;
     int table_index;
     bool returned; // 是否已经出现了
     bool blocking; 
@@ -31,12 +42,18 @@ struct SymbolTable{
     SymbolTable *parent;
 };
 
-typedef std::vector<SymbolTable> SymTableList;
+typedef std::vector<SymbolTable> SymTableList; // 每个函数一个SymtableList
+typedef std::map<std::string, SymTableList> ProgramSymTableList; // 程序中可能有多个函数
 
 extern SymTable sym_table;
+extern FuncTable func_table;
+extern GlobalVarTable global_var_table;
 extern SymTableList sym_table_list;
+extern ProgramSymTableList program_sym_table;
+
 extern int block_count;
 extern SymbolTable* cur_table;
+extern SymTableList* cur_sym_table_list;
 extern int end_count;
 extern int if_count;
 extern int else_count;
@@ -46,6 +63,7 @@ extern int cur_while;
 extern int cur_while_end;
 extern int prev_cur_while;
 extern bool break_continue;
+extern std::string cur_func_name;
 
 
 enum TYPE{
@@ -53,7 +71,8 @@ enum TYPE{
   _Exp, _MulExp, _AddExp, _RelExp, _EqExp, _LAndExp, _LOrExp, \
   _MultiConstDef, _ConstDef, _MultiBlockItem, _BlockItem, _Decl, _Stmt, \
   _LVal, _ConstDecl, _VarDecl, _VarDef, _MultiVarDef, _Ident, _Return, _Block, \
-  _OpenStmt, _MatchedStmt, _Continue, _Break, 
+  _OpenStmt, _MatchedStmt, _Continue, _Break, _CompUnit, _FuncDef, \
+  _MultiFuncFParam, _FuncFParam, _MultiFuncRParam, _FuncRParam, 
 };
 
 // 所有 AST 的基类
@@ -64,54 +83,75 @@ class BaseAST {
   virtual std::string Calc(std::string& ret_str){
     return "";
   }
-  virtual int Calc_val(){
-    return 0;
+  virtual RetVal Calc_val(){
+    RetVal ans;
+    return ans;
+  }
+  virtual std::vector<std::string> Param(std::string& ret_str){
+    std::vector<std::string> aaa;
+    return aaa;
   }
   std::vector<BaseAST *> branch;
   TYPE type;
+};
+
+class ProgramUnitAST : public BaseAST {
+    public:
+    std::unique_ptr<BaseAST> comp_unit;
+    void Dump(std::string& ret_str) const override {
+        ret_str = "";
+        ret_str += "decl @getint(): i32\n";
+        ret_str += "decl @getch(): i32\n";
+        ret_str += "decl @getarray(*i32): i32\n";
+        ret_str += "decl @putint(i32)\n";
+        ret_str += "decl @putch(i32)\n";
+        ret_str += "decl @putarray(i32, *i32)\n";
+        ret_str += "decl @starttime()\n";
+        ret_str += "decl @stoptime()\n";
+        
+        std::cout << "decl @getint(): i32\n";
+        std::cout << "decl @getch(): i32\n";
+        std::cout << "decl @getarray(*i32): i32\n";
+        std::cout << "decl @putint(i32)\n";
+        std::cout << "decl @putch(i32)\n";
+        std::cout << "decl @putarray(i32, *i32)\n";
+        std::cout << "decl @starttime()\n";
+        std::cout << "decl @stoptime()\n";
+
+        func_table["getint"] = "int";
+        func_table["getch"] = "int";
+        func_table["getarray"] = "int";
+        func_table["putint"] = "void";
+        func_table["putch"] = "void";
+        func_table["putarray"] = "void";
+        func_table["starttime"] = "void";
+        func_table["stoptime"] = "void";
+        
+        comp_unit->Dump(ret_str);
+    }
 };
 
 // CompUnit 是 BaseAST
 class CompUnitAST : public BaseAST {
  public:
   // 用智能指针管理对象
+  CompUnitAST(){
+    type = _CompUnit;
+  }
+  std::unique_ptr<BaseAST> inner_comp_unit;
   std::unique_ptr<BaseAST> func_def;
+  std::unique_ptr<BaseAST> decl;
   void Dump(std::string& ret_str) const override {
     std::cout << "COMPUNIT" << std::endl;
     // std::cout << "fun ";
-    // std::cout << "CompUnitAST { ";
-    ret_str = "";
-    func_def->Dump(ret_str);
-    // std::cout << " }";
-  }
-};
-
-// FuncDef 也是 BaseAST
-class FuncDefAST : public BaseAST {
- public:
-  std::unique_ptr<BaseAST> func_type;
-  std::string ident;
-  std::unique_ptr<BaseAST> block;
-  void Dump(std::string& ret_str) const override {
-    std::cout << "FUNCDEF" << std::endl;
-    ret_str += "fun ";
-    ret_str += "@";
-    ret_str += ident;
-    ret_str += "(): ";
-    std::cout << "fun ";
-    // std::cout << "FuncDefAST { ";
-    std::cout << "@" << ident << "(): ";
-    func_type->Dump(ret_str);
-
-    ret_str += " { \n";
-    ret_str += "%entry:\n";
-    std::cout << " {" << std::endl;
-    std::cout << "%entry:" << std::endl;
-
-    block->Dump(ret_str);
-
-    ret_str += "\n}";
-    std::cout << std::endl << "}";
+    // std::cout << "CompUnitAST { "
+    if(branch[0]->type == _CompUnit){
+        inner_comp_unit->Dump(ret_str);
+        func_def->Dump(ret_str);
+    }
+    else if(branch[0]->type == _FuncDef){
+        func_def->Dump(ret_str);
+    }
     // std::cout << " }";
   }
 };
@@ -124,11 +164,200 @@ class FuncTypeAST : public BaseAST{
         std::cout << "FUNCTYPE" << std::endl;
         // std::cout << "FuncTypeAST { ";
         if(func_type_str == "int"){
-            ret_str += "i32";
-            std::cout << "i32";
+            ret_str += ": i32";
+            std::cout << ": i32";
+        }
+        else if(func_type_str == "void") {
+            return;
         }
         // std::cout << " }";
     }
+};
+
+class BTypeAST : public BaseAST{
+    public:
+    std::string btype_name;
+    void Dump(std::string& ret_str) const override{
+        return;
+    }
+};
+
+class MultiFuncFParamAST : public BaseAST {
+    public:
+    MultiFuncFParamAST(){
+        type = _MultiFuncFParam;
+    }
+    std::unique_ptr<BaseAST> multi_funcf_param;
+    std::unique_ptr<BaseAST> funcf_param;
+    void Dump(std::string& ret_str) const override {
+        if(branch.size() == 0){
+            return;
+        }
+        else if(branch[0]->type == _MultiFuncFParam){
+            multi_funcf_param->Dump(ret_str);
+            ret_str += ", ";
+            std::cout << ", ";
+            funcf_param->Dump(ret_str);
+        }
+        else if(branch[0]->type == _FuncFParam){
+            funcf_param->Dump(ret_str);
+        }
+    }
+    std::vector<std::string> Param(std::string& ret_str) override{
+        std::vector<std::string> ans;
+        std::vector<std::string> multi_ans;
+        std::vector<std::string> single_ans;
+        if(branch.size() == 0){
+            ans.clear();
+        }
+        else if(branch[0]->type == _MultiFuncFParam){
+            multi_ans = multi_funcf_param->Param(ret_str);
+            single_ans = funcf_param->Param(ret_str);
+            int multi_len = multi_ans.size();
+            for(int i = 0; i < multi_len; ++ i){
+                ans.push_back(multi_ans[i]);
+            }
+            ans.push_back(single_ans[0]);
+        }
+        else if(branch[0]->type == _FuncFParam){
+            std::cout << "SINGLE PARAM STORE TO VEC" << std::endl;
+            single_ans = funcf_param->Param(ret_str);
+            ans.push_back(single_ans[0]);
+        }
+        return ans;
+    }
+};
+
+class FuncFParamAST : public BaseAST {
+    public:
+    FuncFParamAST(){
+        type = _FuncFParam;
+    }
+    std::unique_ptr<BaseAST> btype;
+    std::string ident;
+    void Dump(std::string& ret_str) const override {
+        ret_str += "@" + ident;
+        std::cout << "@" + ident;
+        BTypeAST * btype_ptr = (BTypeAST *)branch[0];
+        if(btype_ptr->btype_name == "int"){
+            ret_str += " : i32";
+            std::cout << " : i32";
+        }
+    }
+    std::vector<std::string> Param(std::string& ret_str) override {
+        std::vector<std::string> ans;
+        ans.push_back(ident);
+        return ans;
+    }
+};
+
+// FuncDef 也是 BaseAST
+class FuncDefAST : public BaseAST {
+ public:
+ FuncDefAST(){
+    type = _FuncDef;
+ }
+  std::unique_ptr<BaseAST> func_type;
+  std::string ident;
+  std::unique_ptr<BaseAST> block;
+  std::unique_ptr<BaseAST> multi_funcf_params;
+  void Dump(std::string& ret_str) const override {
+    std::cout << "FUNCDEF" << std::endl;
+    // 保存函数类型函数名到全局函数符号表
+    FuncTypeAST* func_type_ptr = (FuncTypeAST *)branch[0];
+    func_table[ident] = func_type_ptr->func_type_str;
+
+    // 导出参数列表
+    MultiFuncFParamAST* func_params = (MultiFuncFParamAST *)branch[2];
+
+    ret_str += "fun ";
+    ret_str += "@";
+    ret_str += ident;
+    ret_str += "(";
+    // std::cout << "FuncDefAST { ";
+    std::cout << "fun ";
+    
+    std::cout << "@" << ident << "(";
+
+    multi_funcf_params->Dump(ret_str);
+
+    ret_str += ") ";
+    std::cout << ") ";
+    func_type->Dump(ret_str);
+
+    ret_str += " { \n";
+    std::cout << " {" << std::endl;
+
+    ret_str += "%entry:\n";
+    std::cout << "%entry:" << std::endl;
+
+    SymTableList sym_table_list;
+    sym_table_list.clear();
+    program_sym_table[ident] = sym_table_list;
+    cur_sym_table_list = &sym_table_list;
+    cur_func_name = ident;
+    std::cout << "IDENT IS" << cur_func_name << std::endl; 
+    // 进入函数之前的sym_table中的内容和函数内部symtable的内容不互通
+    cur_table = NULL;
+
+    // 进入函数之前，先加一个符号表，表示函数的参数
+    block_count ++;
+    SymbolTable symbol_table;
+    symbol_table.table_index = block_count;
+    symbol_table.func_name = cur_func_name;
+    symbol_table.parent = cur_table;
+    symbol_table.returned = false;
+    symbol_table.blocking = false;
+    //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
+    cur_table = &symbol_table;
+    cur_sym_table_list->push_back(symbol_table);
+
+    std::cout << "BUILD A SYMTABLE FOR FUNCTION" << std::endl;
+    std::vector<std::string> param_list = func_params->Param(ret_str);
+    int param_len = param_list.size();
+    std::cout << "PARAM SIZE " << param_len << std::endl;
+    for(int i = 0; i < param_len; ++ i){
+
+        std::string param_register = "%" + param_list[i] + "_" + cur_func_name + "_" + std::to_string(cur_table->table_index);
+        std::string param_name = "@" + param_list[i];
+        ret_str += "    ";
+        ret_str += param_register;
+        ret_str += " = alloc i32\n";
+        ret_str += "    store ";
+        ret_str += param_name;
+        ret_str += ", ";
+        ret_str += param_register;
+        ret_str += "\n";
+
+        std::cout << "  ";
+        std::cout << param_register;
+        std::cout << " = alloc i32\n";
+        std::cout << "  store ";
+        std::cout << param_name;
+        std::cout << ", ";
+        std::cout << param_register;
+        std::cout << "\n";
+
+        Symbol tmp_sym;
+        tmp_sym.type = _PARAM;
+        cur_table->sym_table[param_list[i]] = tmp_sym;
+        
+    }
+
+    block->Dump(ret_str);
+
+    if(cur_table->parent == NULL && !cur_table->returned){
+        ret_str += "    ret \n";
+        std::cout << "  ret \n";
+    }
+
+    cur_table = cur_table->parent;
+    cur_sym_table_list->pop_back();
+
+    ret_str += "}\n";
+    std::cout << "}\n";
+    // std::cout << " }";
+  }
 };
 
 // Block 也是 BaseAST
@@ -144,12 +373,13 @@ class BlockAST : public BaseAST{
         block_count ++;
         SymbolTable symbol_table;
         symbol_table.table_index = block_count;
+        symbol_table.func_name = cur_func_name;
         symbol_table.parent = cur_table;
         symbol_table.returned = false;
         symbol_table.blocking = false;
         //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
         cur_table = &symbol_table;
-        sym_table_list.push_back(symbol_table);
+        cur_sym_table_list->push_back(symbol_table);
 
         std::cout << "BLOCK" << std::endl;
         std::cout << "BLOCKCOUNT = " << std::to_string(block_count) << std::endl;
@@ -196,7 +426,7 @@ class BlockAST : public BaseAST{
             }
         }
         cur_table = cur_table->parent;
-        sym_table_list.pop_back();
+        cur_sym_table_list->pop_back();
     }
 };
 
@@ -260,6 +490,7 @@ class LValAST : public BaseAST{
     std::string Calc(std::string& ret_str) override{
         std::cout << "LVALCALC "  << ident << std::endl;
         int depth = cur_table->table_index;
+        std::string inside_func = cur_table->func_name;
         SymbolTable *used_table = cur_table;
 
         // 看看ident到底是哪儿定义的
@@ -269,19 +500,26 @@ class LValAST : public BaseAST{
         if(used_table == NULL)
             std::cout << "LVAL-SYMTABLE WRONG" << std::endl;
         depth = used_table->table_index;
+        inside_func = used_table->func_name;
         Symbol tmp_ans = used_table->sym_table[ident];
-
+        std::cout << "LVALTYPE " << tmp_ans.type << std::endl; 
         std::string ans;
         if(tmp_ans.type == _CONST){
             ans = std::to_string(tmp_ans.sym_val);
         }
-        else if(tmp_ans.type == _NUM || tmp_ans.type == _UNK){
+        else if(tmp_ans.type == _NUM || tmp_ans.type == _UNK || tmp_ans.type == _NUM_UNCALC){
             std::cout << "NUM OR UNK" << std::endl;
-            ans = "@" + ident + "_" + std::to_string(depth);
+            ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
+        }
+        else if(tmp_ans.type == _CONST_UNCALC){
+
+        }
+        else if(tmp_ans.type == _PARAM){
+            ans = "%" + ident + "_" + inside_func + "_" + std::to_string(depth);
         }
         return ans;
     }
-    int Calc_val() override{
+    RetVal Calc_val() override{
         std::cout << "LVALCALC" << std::endl;
 
         SymbolTable *used_table = cur_table;
@@ -291,9 +529,14 @@ class LValAST : public BaseAST{
         }
         Symbol tmp_ans = used_table->sym_table[ident];
         // Symbol tmp_ans = cur_table->sym_table[ident];
-        int ans = 0;
-        if(tmp_ans.type != _STR){
-            ans = tmp_ans.sym_val;
+        std::cout << "LVALTYPE in calc_val " << tmp_ans.type << std::endl; 
+        RetVal ans;
+        if(tmp_ans.type == _NUM || tmp_ans.type == _CONST){
+            ans.value = tmp_ans.sym_val;
+            ans.calcable = true;
+        }
+        else {
+            ans.calcable = false;
         }
         return ans;
     }
@@ -339,7 +582,7 @@ class OpenStmtAST : public BaseAST {
 
             end_count ++;
             if_count ++;
-            if(tmp1[0] == '@'){
+            if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                 cond = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -379,12 +622,13 @@ class OpenStmtAST : public BaseAST {
             block_count ++;
             SymbolTable symbol_table_if_then;
             symbol_table_if_then.table_index = block_count;
+            symbol_table_if_then.func_name = cur_func_name;
             symbol_table_if_then.parent = cur_table;
             symbol_table_if_then.returned = false;
             symbol_table_if_then.blocking = true; //if的{}是blocking的，在if内部return并不影响在main和else中return
             //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
             cur_table = &symbol_table_if_then;
-            sym_table_list.push_back(symbol_table_if_then);
+            cur_sym_table_list->push_back(symbol_table_if_then);
 
             ret_str += "\n";
             ret_str += then;
@@ -402,7 +646,7 @@ class OpenStmtAST : public BaseAST {
             }
 
             cur_table = cur_table->parent;
-            sym_table_list.pop_back();
+            cur_sym_table_list->pop_back();
 
             /* } */
 
@@ -423,7 +667,7 @@ class OpenStmtAST : public BaseAST {
             end_count ++;
             if_count ++;
             else_count ++;
-            if(tmp1[0] == '@'){
+            if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                 cond = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -463,12 +707,13 @@ class OpenStmtAST : public BaseAST {
             block_count ++;
             SymbolTable symbol_table_if;
             symbol_table_if.table_index = block_count;
+            symbol_table_if.func_name = cur_func_name;
             symbol_table_if.parent = cur_table;
             symbol_table_if.returned = false;
             symbol_table_if.blocking = true; //if的{}是blocking的，在if内部return并不影响在main和else中return
             //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
             cur_table = &symbol_table_if;
-            sym_table_list.push_back(symbol_table_if);
+            cur_sym_table_list->push_back(symbol_table_if);
 
             ret_str += "\n";
             ret_str += then;
@@ -486,7 +731,7 @@ class OpenStmtAST : public BaseAST {
             }
 
             cur_table = cur_table->parent;
-            sym_table_list.pop_back();
+            cur_sym_table_list->pop_back();
             /* } */
             
             /* else {*/
@@ -494,12 +739,13 @@ class OpenStmtAST : public BaseAST {
             block_count ++;
             SymbolTable symbol_table_else;
             symbol_table_else.table_index = block_count;
+            symbol_table_else.func_name = cur_func_name;
             symbol_table_else.parent = cur_table;
             symbol_table_else.returned = false;
             symbol_table_else.blocking = true; //if的{}是blocking的，在if内部return并不影响在main和else中return
             //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
             cur_table = &symbol_table_else;
-            sym_table_list.push_back(symbol_table_else);
+            cur_sym_table_list->push_back(symbol_table_else);
 
             ret_str += "\n";
             ret_str += else_str;
@@ -520,7 +766,7 @@ class OpenStmtAST : public BaseAST {
             }
 
             cur_table = cur_table->parent;
-            sym_table_list.pop_back();
+            cur_sym_table_list->pop_back();
             /* } */
 
             ret_str += "\n";
@@ -556,13 +802,14 @@ class MatchedStmtAST : public BaseAST{
             std::cout << "STMTRETEXP" << std::endl;
             std::string ans;
             ans = Exp->Calc(ret_str);
-            std::cout << "AAA" << std::endl;
+            std::cout << ans << std::endl;
+            std::cout << "AAA" << branch.size() << std::endl;
             if(branch.size() == 1){
                 ret_str += "    ret ";
                 std::cout << "   ret ";
             }
             else if(branch.size() == 2){
-                if(ans[0] == '@'){ // 具名变量
+                if(ans[0] == '@' || (ans[0] == '%' && (ans[1] > '9' || ans[1] < '0'))){ // 具名变量
                     std::string tmp;
                     tmp = "%" + std::to_string(var_count);
                     var_count ++;
@@ -601,7 +848,7 @@ class MatchedStmtAST : public BaseAST{
             // 已经输出一个ret语句，这个block内其他语句不能再生成
             cur_table->returned = true;
         }
-        else if (branch[0]->type == _LVal){
+        else if (branch[0]->type == _LVal){ //赋值 有可能是赋值给参数同名的变量
             std::cout << "STMTLVAL" << std::endl;
             LValAST * cur_branch = (LValAST *)branch[0];
             std::string tmp1;
@@ -609,7 +856,12 @@ class MatchedStmtAST : public BaseAST{
             std::string ans2;
             std::string var_name = cur_branch->ident;
             int value;
-            value = cur_branch->Calc_val();
+            RetVal calc_value;
+
+            calc_value = cur_branch->Calc_val();
+            if(calc_value.calcable){
+                value = calc_value.value;
+            }
 
             // int depth = cur_table->table_index;
             // cur table 会不会变？
@@ -631,7 +883,7 @@ class MatchedStmtAST : public BaseAST{
 
             ans1 = tmp1;
 
-            if(tmp1[0] == '@'){
+            if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -650,10 +902,23 @@ class MatchedStmtAST : public BaseAST{
                 std::cout << "\n";
             }
 
-            Symbol symb;
-            symb.type = _NUM;
-            symb.sym_val = value;
-            used_table->sym_table[var_name] = symb; // 存到对应的symtable中
+            // 只可能有UNK, NUM, GLOBAL, PARAM
+            // 先取出来看看
+            Symbol symb = used_table->sym_table[var_name];
+            std::cout << "LVAL = EXP CALCABLE? " << calc_value.calcable << std::endl;
+            std::cout << "LVALTYPE " << symb.type << std::endl;
+            if(calc_value.calcable){
+                if(symb.type == _UNK || symb.type == _NUM){
+                    symb.type = _NUM;
+                }
+                symb.sym_val = value;
+                used_table->sym_table[var_name] = symb; // 存到对应的symtable中
+            }
+            else{
+                if(symb.type == _UNK || symb.type == _NUM){
+                    symb.type = _NUM_UNCALC;
+                }
+            }
             
             ret_str += "    ";
             ret_str += "store ";
@@ -707,7 +972,7 @@ class MatchedStmtAST : public BaseAST{
                 tmp1 = Exp->Calc(ret_str);
                 cond = tmp1;
 
-                if(tmp1[0] == '@'){
+                if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                     cond = "%" + std::to_string(var_count);
                     var_count ++;
 
@@ -747,6 +1012,7 @@ class MatchedStmtAST : public BaseAST{
                 block_count ++;
                 SymbolTable symbol_table_while;
                 symbol_table_while.table_index = block_count;
+                symbol_table_while.func_name = cur_func_name;
                 symbol_table_while.parent = cur_table;
                 symbol_table_while.returned = false;
                 symbol_table_while.blocking = true; 
@@ -754,7 +1020,7 @@ class MatchedStmtAST : public BaseAST{
                 // 在while内部return，也是在parent节点中return
                 //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
                 cur_table = &symbol_table_while;
-                sym_table_list.push_back(symbol_table_while);
+                cur_sym_table_list->push_back(symbol_table_while);
 
                 ret_str += while_body;
                 ret_str += ":\n";
@@ -794,7 +1060,7 @@ class MatchedStmtAST : public BaseAST{
                     }
                 }*/
                 cur_table = cur_table->parent;
-                sym_table_list.pop_back();
+                cur_sym_table_list->pop_back();
                 /* } */
 
                 ret_str += "\n";
@@ -824,7 +1090,7 @@ class MatchedStmtAST : public BaseAST{
                 if_count ++;
                 else_count ++;
 
-                if(tmp1[0] == '@'){
+                if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                     cond = "%" + std::to_string(var_count);
                     var_count ++;
 
@@ -864,12 +1130,13 @@ class MatchedStmtAST : public BaseAST{
                 block_count ++;
                 SymbolTable symbol_table_if;
                 symbol_table_if.table_index = block_count;
+                symbol_table_if.func_name = cur_func_name;
                 symbol_table_if.parent = cur_table;
                 symbol_table_if.returned = false;
                 symbol_table_if.blocking = true; //if的{}是blocking的，在if内部return并不影响在main和else中return
                 //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
                 cur_table = &symbol_table_if;
-                sym_table_list.push_back(symbol_table_if);
+                cur_sym_table_list->push_back(symbol_table_if);
 
                 ret_str += "\n";
                 ret_str += then;
@@ -889,7 +1156,7 @@ class MatchedStmtAST : public BaseAST{
 
                 // if 的block本身是blocking的，因此不需要更新parent及祖先节点的returned值
                 cur_table = cur_table->parent;
-                sym_table_list.pop_back();
+                cur_sym_table_list->pop_back();
 
                 /* } */
 
@@ -898,12 +1165,13 @@ class MatchedStmtAST : public BaseAST{
                 block_count ++;
                 SymbolTable symbol_table_else;
                 symbol_table_else.table_index = block_count;
+                symbol_table_else.func_name = cur_func_name;
                 symbol_table_else.parent = cur_table;
                 symbol_table_else.returned = false;
                 symbol_table_else.blocking = true; //if的{}是blocking的，在if内部return并不影响在main和else中return
                 //将符号表改为当前符号表（之前的符号表一定是这个block的parent）
                 cur_table = &symbol_table_else;
-                sym_table_list.push_back(symbol_table_else);
+                cur_sym_table_list->push_back(symbol_table_else);
 
                 ret_str += "\n";
                 ret_str += else_str;
@@ -922,7 +1190,7 @@ class MatchedStmtAST : public BaseAST{
 
                 // else的block本身是blocking的，因此不需要更新parent及祖先节点的returned值
                 cur_table = cur_table->parent;
-                sym_table_list.pop_back();
+                cur_sym_table_list->pop_back();
 
                 /* } */
 
@@ -990,8 +1258,11 @@ class NumberAST : public BaseAST{
         std::string ans = std::to_string(number);
         return ans;
     }
-    int Calc_val() override{
-        return number;
+    RetVal Calc_val() override{
+        RetVal ans;
+        ans.calcable = true;
+        ans.value = number;
+        return ans;
     }
 };
 
@@ -1009,7 +1280,7 @@ class ExpAST : public BaseAST{
         std::string ans = lor_exp->Calc(ret_str);
         return ans;
     }
-    int Calc_val() override{
+    RetVal Calc_val() override{
         return lor_exp->Calc_val();
     }
 };
@@ -1040,7 +1311,7 @@ class PrimaryExpAST : public BaseAST{
         ans = branch[0]->Calc(ret_str);
         return ans;
     }
-    int Calc_val() override{
+    RetVal Calc_val() override{
         return branch[0]->Calc_val();
     }
 };
@@ -1053,6 +1324,8 @@ class UnaryExpAST : public BaseAST{
     std::unique_ptr<BaseAST> primary_exp;
     std::unique_ptr<BaseAST> unary_op;
     std::unique_ptr<BaseAST> unary_exp;
+    std::string ident;
+    std::unique_ptr<BaseAST> multi_funcr_param;
     void Dump(std::string& ret_str) const override{
     }
     std::string Calc(std::string& ret_str) override{
@@ -1075,7 +1348,7 @@ class UnaryExpAST : public BaseAST{
             tmp = branch[1]->Calc(ret_str);
             ans1 = tmp;
             
-            if(tmp[0] == '@'){
+            if(tmp[0] == '@' || (tmp[0] == '%' && (tmp[1] > '9' || tmp[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1120,30 +1393,163 @@ class UnaryExpAST : public BaseAST{
             std::cout << ans1;
             std::cout << "\n";
         }
+        else if(branch[0]->type == _Ident){ // 函数调用
+            std::cout << "CHECK FUNC TYPE" << func_table[ident] << std::endl;
+            std::vector<std::string> cur_param = multi_funcr_param->Param(ret_str);
+            if(func_table[ident] == "int"){
+                ans = "%" + std::to_string(var_count);
+                var_count ++;
+
+                ret_str += "    ";
+                ret_str += ans;
+                ret_str += " = ";
+                
+                std::cout << "    ";
+                std::cout << ans;
+                std::cout << " = ";
+            }
+            else if(func_table[ident] == "void"){
+                ret_str += "    ";
+                std::cout << "  ";
+            }
+
+            int param_size = cur_param.size();
+            ret_str += "call @";
+            ret_str += ident;
+            ret_str += "(";
+
+            std::cout << "call @";
+            std::cout << ident;
+            std::cout << "(";
+
+            if(param_size){
+                ret_str += cur_param[0];
+                std::cout << cur_param[0];
+            }
+            for(int i = 1; i < param_size; ++ i){
+                ret_str += ", ";
+                ret_str += cur_param[i];
+
+                std::cout << ", ";
+                std::cout << cur_param[i];
+            }
+            ret_str += ")\n";
+            std::cout << ")\n";
+        }
+
         return ans;
     }
-    int Calc_val() override{
-        int ans = 0;
+    RetVal Calc_val() override{
+        RetVal ans;
         if(branch[0]->type == _PrimaryExp){
             ans = branch[0]->Calc_val();
         }
         else if(branch[0]->type == _UnaryOp){
             UnaryOpAST * cur_branch = (UnaryOpAST *)branch[0];
             if(cur_branch->op == '-'){
-                int tmp_ans = branch[1]->Calc_val();
-                ans = 0 - tmp_ans;
+                RetVal tmp_ans = branch[1]->Calc_val();
+                if(tmp_ans.calcable){
+                    ans.calcable = true;
+                    ans.value = 0 - tmp_ans.value;
+                }
+                // ans = 0 - tmp_ans;
             }
             else if(cur_branch->op == '+'){
                 ans = branch[1]->Calc_val();
             }
             else if(cur_branch->op == '!'){
-                int tmp_ans = branch[1]->Calc_val();
-                ans = !tmp_ans;
+                RetVal tmp_ans = branch[1]->Calc_val();
+                if(tmp_ans.calcable){
+                    ans.calcable = true;
+                    ans.value = !tmp_ans.value;
+                }
+                // ans = !tmp_ans;
             }
+        }
+        else if(branch[0]->type == _Ident){
+            // assert(0);
+            std::cout << "Calc_val Error in function calling" << std::endl;
         }
         return ans;
     }
 };
+
+class MultiFuncRParamAST : public BaseAST {
+    public:
+    MultiFuncRParamAST(){
+        type = _MultiFuncRParam;
+    }
+    std::unique_ptr<BaseAST> multi_funcr_param;
+    std::unique_ptr<BaseAST> Exp;
+    void Dump(std::string& ret_str) const override {
+        multi_funcr_param->Dump(ret_str);
+        Exp->Calc(ret_str);
+    }
+    std::vector<std::string> Param(std::string& ret_str) override {
+        std::vector<std::string> ans;
+        ans.clear();
+        std::string tmp_ans;
+        if(branch.size() == 0){
+
+        }
+        else if(branch[0]->type == _Exp){
+            tmp_ans = branch[0]->Calc(ret_str);
+            std::string ans1 = tmp_ans;
+            std::cout << "FUNCRPARAM EXP " << tmp_ans << std::endl;
+            if(tmp_ans[0] == '@' || (tmp_ans[0] == '%' && (tmp_ans[1] > '9' || tmp_ans[1] < '0'))){
+                ans1 = "%" + std::to_string(var_count);
+                var_count ++;
+
+                ret_str += "    ";
+                ret_str += ans1;
+                ret_str += " = ";
+                ret_str += "load ";
+                ret_str += tmp_ans;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << ans1;
+                std::cout << " = ";
+                std::cout << "load ";
+                std::cout << tmp_ans;
+                std::cout << "\n";
+            }
+            ans.push_back(ans1);
+        }
+        else if(branch[0]->type == _MultiFuncRParam){
+            std::vector<std::string> tmp;
+            tmp = multi_funcr_param->Param(ret_str);
+            tmp_ans = branch[1]->Calc(ret_str);
+            std::string ans1 = tmp_ans;
+            // std::cout << "FUNCRPARAM EXP " << tmp_ans << std::endl;
+            if(tmp_ans[0] == '@' || (tmp_ans[0] == '%' && (tmp_ans[1] > '9' || tmp_ans[1] < '0'))){
+                ans1 = "%" + std::to_string(var_count);
+                var_count ++;
+
+                ret_str += "    ";
+                ret_str += ans1;
+                ret_str += " = ";
+                ret_str += "load ";
+                ret_str += tmp_ans;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << ans1;
+                std::cout << " = ";
+                std::cout << "load ";
+                std::cout << tmp_ans;
+                std::cout << "\n";
+            }
+            int tmp_length = tmp.size();
+            for(int i = 0; i < tmp_length; ++ i){
+                ans.push_back(tmp[i]);
+            }
+            ans.push_back(ans1);
+        }
+        return ans;
+    }
+};
+
 
 class MulExpAST : public BaseAST{
     public:
@@ -1173,8 +1579,11 @@ class MulExpAST : public BaseAST{
 
             ans1 = tmp1;
             ans2 = tmp2;
+
+            std::cout << "FIRST: " << tmp1 << std::endl;
+            std::cout << (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0')) << std::endl;
             
-            if(tmp1[0] == '@'){
+            if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1193,7 +1602,7 @@ class MulExpAST : public BaseAST{
                 std::cout << "\n";
             }
 
-            if(tmp2[0] == '@'){
+            if(tmp2[0] == '@' || (tmp2[0] == '%' && (tmp2[1] > '9' || tmp2[1] < '0'))){
                 ans2 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1248,8 +1657,8 @@ class MulExpAST : public BaseAST{
         }
         return ans;
     }
-    int Calc_val() override{
-        int ans = 0;
+    RetVal Calc_val() override{
+        RetVal ans;
         if(branch[0]->type == _UnaryExp){
             UnaryExpAST* cur_branch = (UnaryExpAST *)branch[0];
             ans = cur_branch->Calc_val();
@@ -1257,13 +1666,31 @@ class MulExpAST : public BaseAST{
         else if(branch[0]->type == _MulExp){
             MulExpAST * cur_branch = (MulExpAST *) branch[0];
             if(op == '*'){
-                ans = cur_branch->Calc_val() * branch[1]->Calc_val();
+                RetVal tmp1, tmp2;
+                tmp1 = cur_branch->Calc_val();
+                tmp2 =  branch[1]->Calc_val();
+                ans.calcable = tmp1.calcable && tmp2.calcable;
+                if(ans.calcable){
+                    ans.value = tmp1.value * tmp2.value;
+                }
             }
             else if(op == '/'){
-                ans = cur_branch->Calc_val() / branch[1]->Calc_val();
+                RetVal tmp1, tmp2;
+                tmp1 = cur_branch->Calc_val();
+                tmp2 =  branch[1]->Calc_val();
+                ans.calcable = tmp1.calcable && tmp2.calcable;
+                if(ans.calcable){
+                    ans.value = tmp1.value / tmp2.value;
+                }
             }
             else if(op == '%'){
-                ans = cur_branch->Calc_val() % branch[1]->Calc_val();
+                RetVal tmp1, tmp2;
+                tmp1 = cur_branch->Calc_val();
+                tmp2 =  branch[1]->Calc_val();
+                ans.calcable = tmp1.calcable && tmp2.calcable;
+                if(ans.calcable){
+                    ans.value = tmp1.value % tmp2.value;
+                }
             }
         }
         return ans;
@@ -1296,7 +1723,7 @@ class AddExpAST : public BaseAST{
             ans1 = tmp1;
             ans2 = tmp2;
             
-            if(tmp1[0] == '@'){
+            if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1315,7 +1742,7 @@ class AddExpAST : public BaseAST{
                 std::cout << "\n";
             }
 
-            if(tmp2[0] == '@'){
+            if(tmp2[0] == '@' || (tmp2[0] == '%' && (tmp2[1] > '9' || tmp2[1] < '0'))){
                 ans2 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1366,8 +1793,8 @@ class AddExpAST : public BaseAST{
         }
         return ans;
     }
-    int Calc_val() override{
-        int ans = 0;
+    RetVal Calc_val() override{
+        RetVal ans;
         if(branch[0]->type == _MulExp){
             MulExpAST* cur_branch = (MulExpAST *)branch[0];
             ans = cur_branch->Calc_val();
@@ -1375,10 +1802,24 @@ class AddExpAST : public BaseAST{
         else if(branch[0]->type == _AddExp){
             AddExpAST * cur_branch = (AddExpAST *) branch[0];
             if(op == '+'){
-                ans = cur_branch->Calc_val() + branch[1]->Calc_val();
+                RetVal tmp1, tmp2;
+                tmp1 = cur_branch->Calc_val();
+                tmp2 =  branch[1]->Calc_val();
+                ans.calcable = tmp1.calcable && tmp2.calcable;
+                if(ans.calcable){
+                    ans.value = tmp1.value + tmp2.value;
+                }
+                // ans = cur_branch->Calc_val() + branch[1]->Calc_val();
             }
             else if(op == '-'){
-                ans = cur_branch->Calc_val() - branch[1]->Calc_val();
+                RetVal tmp1, tmp2;
+                tmp1 = cur_branch->Calc_val();
+                tmp2 =  branch[1]->Calc_val();
+                ans.calcable = tmp1.calcable && tmp2.calcable;
+                if(ans.calcable){
+                    ans.value = tmp1.value - tmp2.value;
+                }
+                // ans = cur_branch->Calc_val() - branch[1]->Calc_val();
             }
         }
         return ans;
@@ -1415,7 +1856,7 @@ class RelExpAST : public BaseAST{
             ans1 = tmp1;
             ans2 = tmp2;
             
-            if(tmp1[0] == '@'){
+            if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1434,7 +1875,7 @@ class RelExpAST : public BaseAST{
                 std::cout << "\n";
             }
 
-            if(tmp2[0] == '@'){
+            if(tmp2[0] == '@' || (tmp2[0] == '%' && (tmp2[1] > '9' || tmp2[1] < '0'))){
                 ans2 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1492,8 +1933,8 @@ class RelExpAST : public BaseAST{
         }
         return ans;
     }
-    int Calc_val() override{
-        int ans = 0;
+    RetVal Calc_val() override{
+        RetVal ans;
         if(branch[0]->type == _AddExp){
             AddExpAST* cur_branch = (AddExpAST *)branch[0];
             ans = cur_branch->Calc_val();
@@ -1501,16 +1942,44 @@ class RelExpAST : public BaseAST{
         else if(branch[0]->type == _RelExp){
             RelExpAST * cur_branch = (RelExpAST *) branch[0];
             if(op == ">="){
-                ans = cur_branch->Calc_val() >= branch[1]->Calc_val();
+                RetVal tmp1, tmp2;
+                tmp1 = cur_branch->Calc_val();
+                tmp2 =  branch[1]->Calc_val();
+                ans.calcable = tmp1.calcable && tmp2.calcable;
+                if(ans.calcable){
+                    ans.value = tmp1.value >= tmp2.value;
+                }
+                // ans = cur_branch->Calc_val() >= branch[1]->Calc_val();
             }
             else if(op == "<="){
-                ans = cur_branch->Calc_val() <= branch[1]->Calc_val();
+                RetVal tmp1, tmp2;
+                tmp1 = cur_branch->Calc_val();
+                tmp2 =  branch[1]->Calc_val();
+                ans.calcable = tmp1.calcable && tmp2.calcable;
+                if(ans.calcable){
+                    ans.value = tmp1.value <= tmp2.value;
+                }
+                // ans = cur_branch->Calc_val() <= branch[1]->Calc_val();
             }
             else if(op == ">"){
-                ans = cur_branch->Calc_val() > branch[1]->Calc_val();
+                RetVal tmp1, tmp2;
+                tmp1 = cur_branch->Calc_val();
+                tmp2 =  branch[1]->Calc_val();
+                ans.calcable = tmp1.calcable && tmp2.calcable;
+                if(ans.calcable){
+                    ans.value = tmp1.value > tmp2.value;
+                }
+                // ans = cur_branch->Calc_val() > branch[1]->Calc_val();
             }
             else if(op == "<"){
-                ans = cur_branch->Calc_val() < branch[1]->Calc_val();
+                RetVal tmp1, tmp2;
+                tmp1 = cur_branch->Calc_val();
+                tmp2 =  branch[1]->Calc_val();
+                ans.calcable = tmp1.calcable && tmp2.calcable;
+                if(ans.calcable){
+                    ans.value = tmp1.value < tmp2.value;
+                }
+                // ans = cur_branch->Calc_val() < branch[1]->Calc_val();
             }
         }
         return ans;
@@ -1546,7 +2015,7 @@ class EqExpAST : public BaseAST{
             ans1 = tmp1;
             ans2 = tmp2;
             
-            if(tmp1[0] == '@'){
+            if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1565,7 +2034,7 @@ class EqExpAST : public BaseAST{
                 std::cout << "\n";
             }
 
-            if(tmp2[0] == '@'){
+            if(tmp2[0] == '@' || (tmp2[0] == '%' && (tmp2[1] > '9' || tmp2[1] < '0'))){
                 ans2 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1615,8 +2084,8 @@ class EqExpAST : public BaseAST{
         }
         return ans;
     }
-    int Calc_val() override{
-        int ans = 0;
+    RetVal Calc_val() override{
+        RetVal ans;
         if(branch[0]->type == _RelExp){
             RelExpAST* cur_branch = (RelExpAST *)branch[0];
             ans = cur_branch->Calc_val();
@@ -1624,10 +2093,24 @@ class EqExpAST : public BaseAST{
         else if(branch[0]->type == _EqExp){
             EqExpAST * cur_branch = (EqExpAST *) branch[0];
             if(op == "=="){
-                ans = cur_branch->Calc_val() == branch[1]->Calc_val();
+                RetVal tmp1, tmp2;
+                tmp1 = cur_branch->Calc_val();
+                tmp2 =  branch[1]->Calc_val();
+                ans.calcable = tmp1.calcable && tmp2.calcable;
+                if(ans.calcable){
+                    ans.value = tmp1.value == tmp2.value;
+                }
+                // ans = cur_branch->Calc_val() == branch[1]->Calc_val();
             }
             else if(op == "!="){
-                ans = cur_branch->Calc_val() != branch[1]->Calc_val();
+                RetVal tmp1, tmp2;
+                tmp1 = cur_branch->Calc_val();
+                tmp2 =  branch[1]->Calc_val();
+                ans.calcable = tmp1.calcable && tmp2.calcable;
+                if(ans.calcable){
+                    ans.value = tmp1.value != tmp2.value;
+                }
+                // ans = cur_branch->Calc_val() != branch[1]->Calc_val();
             }
         }
         return ans;
@@ -1664,7 +2147,7 @@ class LAndExpAST : public BaseAST{
             ans1 = tmp1;
             ans2 = tmp2;
             
-            if(tmp1[0] == '@'){
+            if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1683,7 +2166,7 @@ class LAndExpAST : public BaseAST{
                 std::cout << "\n";
             }
 
-            if(tmp2[0] == '@'){
+            if(tmp2[0] == '@' || (tmp2[0] == '%' && (tmp2[1] > '9' || tmp2[1] < '0'))){
                 ans2 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1885,20 +2368,29 @@ class LAndExpAST : public BaseAST{
         }
         return ans;
     }
-    int Calc_val() override{
-        int ans = 0;
+    RetVal Calc_val() override{
+        RetVal ans;
         if(branch[0]->type == _EqExp){
             EqExpAST* cur_branch = (EqExpAST *)branch[0];
             ans = cur_branch->Calc_val();
         }
         else if(branch[0]->type == _LAndExp){
             LAndExpAST * cur_branch = (LAndExpAST *) branch[0];
-            ans = 0;
-            int tmp1 = cur_branch->Calc_val();
+            RetVal tmp1, tmp2;
+            tmp1 = cur_branch->Calc_val();
+            ans.calcable = tmp1.calcable;
+            ans.value = 0;
+            if(ans.calcable && tmp1.value){
+                tmp2 = branch[1]->Calc_val();
+                ans.calcable = ans.calcable && tmp2.calcable;
+                if(tmp2.calcable)
+                    ans.value = (tmp2.value != 0);
+            }
+            /*int tmp1 = cur_branch->Calc_val();
             if(tmp1 != 0){
                 int tmp2 = branch[1]->Calc_val();
                 ans = (tmp2 != 0);
-            }
+            }*/
             // ans = cur_branch->Calc_val() && branch[1]->Calc_val();
         }
         return ans;
@@ -1935,7 +2427,7 @@ class LOrExpAST : public BaseAST{
             ans1 = tmp1;
             ans2 = tmp2;
             
-            if(tmp1[0] == '@'){
+            if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1954,7 +2446,7 @@ class LOrExpAST : public BaseAST{
                 std::cout << "\n";
             }
 
-            if(tmp2[0] == '@'){
+            if(tmp2[0] == '@' || (tmp2[0] == '%' && (tmp2[1] > '9' || tmp2[1] < '0'))){
                 ans2 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -2191,20 +2683,32 @@ class LOrExpAST : public BaseAST{
         }
         return ans;
     }
-    int Calc_val() override{
-        int ans = 0;
+    RetVal Calc_val() override{
+        RetVal ans;
         if(branch[0]->type == _LAndExp){
             LAndExpAST* cur_branch = (LAndExpAST *)branch[0];
             ans = cur_branch->Calc_val();
         }
         else if(branch[0]->type == _LOrExp){
             LOrExpAST * cur_branch = (LOrExpAST *) branch[0];
+            RetVal tmp1, tmp2;
+            tmp1 = cur_branch->Calc_val();
+            ans.calcable = tmp1.calcable;
+            ans.value = 1;
+            if(ans.calcable && (tmp1.value == 0)){
+                tmp2 = branch[1]->Calc_val();
+                ans.calcable = ans.calcable && tmp2.calcable;
+                if(tmp2.calcable)
+                    ans.value = (tmp2.value != 0);
+            }
+            /*
             ans = 1;
             int tmp1 = cur_branch->Calc_val();
             if(tmp1 == 0){
                 int tmp2 = branch[1]->Calc_val();
                 ans = (tmp2 != 0);
             }
+            */
             // ans = cur_branch->Calc_val() || branch[1]->Calc_val();
         }
         return ans;
@@ -2251,14 +2755,6 @@ class VarDeclAST : public BaseAST {
     void Dump(std::string& ret_str) const override {
         btype->Dump(ret_str);
         multi_var_def->Dump(ret_str);
-    }
-};
-
-class BTypeAST : public BaseAST{
-    public:
-    std::string btype_name;
-    void Dump(std::string& ret_str) const override{
-        return;
     }
 };
 
@@ -2311,10 +2807,15 @@ class ConstDefAST : public BaseAST{
     std::unique_ptr<BaseAST> const_init_val;
     void Dump(std::string& ret_str) const override{
         std::cout << "CONSTDEF" << std::endl;
-        int ans = const_init_val->Calc_val();
+        RetVal ans = const_init_val->Calc_val();
         Symbol symb;
-        symb.type = _CONST;
-        symb.sym_val = ans;
+        if(ans.calcable){
+            symb.type = _CONST;
+            symb.sym_val = ans.value;
+        }
+        else{
+            symb.type = _CONST_UNCALC;
+        }
         cur_table->sym_table[ident] = symb;
     }
 };
@@ -2378,13 +2879,15 @@ class VarDefAST : public BaseAST{
         std::cout << "VARDEF" << std::endl;
         if(branch.size() == 1){
             Symbol symb;
+            // 也有可能是GLOBAL类型
             symb.type = _UNK;
             symb.sym_val = 0;
             cur_table->sym_table[ident] = symb;
             int depth = cur_table->table_index;
+            std::string inside_func = cur_table->func_name;
 
             std::string ans;
-            ans = "@" + ident + "_" + std::to_string(depth);
+            ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
 
             ret_str += "    ";
             ret_str += ans;
@@ -2399,17 +2902,23 @@ class VarDefAST : public BaseAST{
         else if(branch.size() == 2){
             std::string ans;
             std::string val;
-            int value;
+            RetVal value;
             value = init_val->Calc_val();
 
             Symbol symb;
-            symb.type = _NUM;
-            symb.sym_val = value;
+            if(value.calcable){
+                symb.type = _NUM;
+                symb.sym_val = value.value;
+            }
+            else{
+                symb.type = _NUM_UNCALC;
+            }
             cur_table->sym_table[ident] = symb;
             int depth = cur_table->table_index;
+            std::string inside_func = cur_table->func_name;
             // init_val->Dump(ret_str);
 
-            ans = "@" + ident + "_" + std::to_string(depth);
+            ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
             val = init_val->Calc(ret_str); // 可能是立即数，也可能是%0
 
             ret_str += "    ";
@@ -2441,7 +2950,7 @@ class ConstInitValAST : public BaseAST{
     void Dump(std::string& ret_str) const override{
 
     }
-    int Calc_val() override{
+    RetVal Calc_val() override{
         return const_exp->Calc_val();
     }
 };
@@ -2457,7 +2966,7 @@ class InitValAST : public BaseAST{
         ans = Exp->Calc(ret_str);
         return ans;
     }
-    int Calc_val() override{
+    RetVal Calc_val() override{
         return Exp->Calc_val();
     }
 };
@@ -2468,7 +2977,7 @@ class ConstExpAST : public BaseAST{
     void Dump(std::string& ret_str) const override{
 
     }
-    int Calc_val() override{
+    RetVal Calc_val() override{
         return Exp->Calc_val();
     }
 };
