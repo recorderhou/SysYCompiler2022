@@ -493,8 +493,27 @@ void Visit(const koopa_raw_binary_t &binary) {
 void Visit(const koopa_raw_store_t &store){
   koopa_raw_value_t value = store.value;
   koopa_raw_value_t dest = store.dest;
-  li_lw(value, "t0");
-  sw(dest, "t0");
+  if(value->kind.tag == KOOPA_RVT_FUNC_ARG_REF){
+    int arg_index = value->kind.data.func_arg_ref.index;
+    if(arg_index < 8){
+      string src_reg = "a" + to_string(arg_index);
+      sw(dest, src_reg);
+    }
+    else{
+      // 高地址到低地址长，caller栈存的参数需要到callee栈顶（最大地址）+参数序号-8
+      int arg_stack = func_sp[cur_func] + (arg_index - 8)*4;
+      cout << " lw t0, " + to_string(arg_stack)+"(sp)\n";
+      sw(dest, "t0");
+    }
+  }
+  else if(value->kind.tag == KOOPA_RVT_GLOBAL_ALLOC){
+    li_lw(value, "t0");
+    sw(dest, "t0");
+  }
+  else{
+    li_lw(value, "t0");
+    sw(dest, "t0");
+  }
 }
 
 void Visit(const koopa_raw_load_t &load){

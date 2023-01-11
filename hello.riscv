@@ -1,23 +1,11 @@
  .data 
- .globl 
+ .globl x_global
+x_global:
+ .zero 4
+init_global
+init_global:
+ .word 1
 
- .text
- .globl add
-add:
- addi  sp, sp, -32
- sw t0, 0(sp)
- sw t0, 4(sp)
- lw t0, 0(sp)
- sw t0, 8(sp)
- lw t0, 4(sp)
- sw t0, 12(sp)
- lw t0, 8(sp)
- lw t1, 12(sp)
- add  t0, t0, t1
- sw t0, 16(sp)
- lw a0, 16(sp)
- addi  sp, sp, 32
- ret
 
  .text
  .globl main
@@ -25,11 +13,29 @@ main:
  addi  sp, sp, -16
  sw ra, 12(sp)
 
- li a0, 1
- li a1, 2
- call add
- sw a0, 0(sp)
+ la t0, x_global
+ lw t0, 0(t0)
+ sw t0, 0(sp)
  lw a0, 0(sp)
+ call putint
+ li a0, 32
+ call putch
+ li a0, 10
+ call putint
+ li a0, 32
+ call putch
+ li a0, 11
+ call putint
+ li a0, 32
+ call putch
+ la t0, init_global
+ lw t0, 0(t0)
+ sw t0, 4(sp)
+ lw a0, 4(sp)
+ call putint
+ li a0, 10
+ call putch
+ li a0, 0
  lw ra, 12(sp)
  addi  sp, sp, 16
  ret
