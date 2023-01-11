@@ -69,19 +69,21 @@ CompUnit
     printf("in compunit funcdef\n");
     auto comp_unit = new CompUnitAST();
     comp_unit->inner_comp_unit = unique_ptr<BaseAST>($1);
+    printf("in compunit funcdef-compunit finish\n");
     comp_unit->func_def = unique_ptr<BaseAST>($2);
+    printf("in cumpunit funcdef-funcdef finish\n");
     comp_unit->branch.push_back($1);
     comp_unit->branch.push_back($2);
     $$ = comp_unit;
   }
-  /*| CompUnit Decl {
+  | CompUnit Decl {
     auto comp_unit = new CompUnitAST();
     comp_unit->inner_comp_unit = unique_ptr<BaseAST>($1);
     comp_unit->decl = unique_ptr<BaseAST>($2);
     comp_unit->branch.push_back($1);
     comp_unit->branch.push_back($2);
     $$ = comp_unit;
-  }*/
+  }
   | FuncDef {
     printf("in funcdef\n");
     auto comp_unit = new CompUnitAST();
@@ -89,12 +91,12 @@ CompUnit
     comp_unit->branch.push_back($1);
     $$ = comp_unit;
   }
-  /*| Decl {
+  | Decl {
     auto comp_unit = new CompUnitAST();
     comp_unit->decl = unique_ptr<BaseAST>($1);
     comp_unit->branch.push_back($1);
     $$ = comp_unit;
-  }*/
+  }
   | error {
     printf("error CompUnit, unbelievable\n");
   }
@@ -111,9 +113,10 @@ CompUnit
 // 虽然此处你看不出用 unique_ptr 和手动 delete 的区别, 但当我们定义了 AST 之后
 // 这种写法会省下很多内存管理的负担
 FuncDef
-  : FuncType IDENT '(' MultiFuncFParam ')' Block{
+  : BType IDENT '(' MultiFuncFParam ')' Block{
     printf("in funcdef\n");
     auto ast = new FuncDefAST();
+    // 实际上是BTypeAST
     ast->func_type = unique_ptr<BaseAST>($1);
     ast->ident = *unique_ptr<string>($2);
     cout << "funcdef-ident" << ast->ident << endl;
@@ -142,6 +145,7 @@ FuncDef
   }*/
 
 // 同上, 不再解释
+/*
 FuncType
   : INT {
     printf("functype in int\n");
@@ -159,6 +163,7 @@ FuncType
     printf("error FuncType, unbelievable\n");
   }
   ;
+*/
 
 MultiFuncFParam
   : /* NULL */ {
@@ -303,6 +308,12 @@ BType
     printf("in btype\n");
     auto ast = new BTypeAST();
     ast->btype_name = "int";
+    $$ = ast;
+  }
+  | VOID {
+    printf("in btype in void\n");
+    auto ast = new BTypeAST();
+    ast->btype_name = "void";
     $$ = ast;
   }
   ;

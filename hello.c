@@ -1,7 +1,11 @@
-int main() {
-  int i = 0;
-  i = i + 1;
-  return i;
+int a = 10;
+
+int inc() {
+	a = a + 1;
+  	return a;
 }
 
+int main() {
+  return 0;
+}
 

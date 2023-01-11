@@ -9,7 +9,7 @@ extern int var_count;
 
 // 参数param，全局变量，以及初始化/赋值时使用参数和全局变量的
 enum SYM_TYPE{
-    _CONST, _NUM, _STR, _UNK, _PARAM, _GLOBAL, _NUM_UNCALC, _CONST_UNCALC, 
+    _CONST, _NUM, _STR, _UNK, _PARAM, _NUM_GLOBAL, _CONST_GLOBAL, _NUM_UNCALC, _CONST_UNCALC, 
 };
 
 struct RetVal {
@@ -100,6 +100,7 @@ class ProgramUnitAST : public BaseAST {
     std::unique_ptr<BaseAST> comp_unit;
     void Dump(std::string& ret_str) const override {
         ret_str = "";
+        cur_func_name.clear();
         ret_str += "decl @getint(): i32\n";
         ret_str += "decl @getch(): i32\n";
         ret_str += "decl @getarray(*i32): i32\n";
@@ -146,11 +147,24 @@ class CompUnitAST : public BaseAST {
     // std::cout << "fun ";
     // std::cout << "CompUnitAST { "
     if(branch[0]->type == _CompUnit){
+        std::cout << "COMPUNIT in COMPUNIT" << std::endl;
+        std::cout << "COMPUNIT's NEXT" << int(branch[1]->type == _FuncDef) << std::endl;
         inner_comp_unit->Dump(ret_str);
-        func_def->Dump(ret_str);
+        if(branch[1]->type == _FuncDef){
+            func_def->Dump(ret_str);
+        }
+        else if(branch[1]->type == _Decl){
+            decl->Dump(ret_str);
+        }
     }
     else if(branch[0]->type == _FuncDef){
+        std::cout << "COMPUNIT in FUNCDEF" << std::endl;
         func_def->Dump(ret_str);
+    }
+    else if(branch[0]->type == _Decl){
+        std::cout << "COMPUNIT in DECL" << std::endl;
+        decl->Dump(ret_str);
+        std::cout << "COMPUNIT DECL FINISH" << std::endl;
     }
     // std::cout << " }";
   }
@@ -264,8 +278,8 @@ class FuncDefAST : public BaseAST {
   void Dump(std::string& ret_str) const override {
     std::cout << "FUNCDEF" << std::endl;
     // 保存函数类型函数名到全局函数符号表
-    FuncTypeAST* func_type_ptr = (FuncTypeAST *)branch[0];
-    func_table[ident] = func_type_ptr->func_type_str;
+    BTypeAST* func_type_ptr = (BTypeAST *)branch[0];
+    func_table[ident] = func_type_ptr->btype_name;
 
     // 导出参数列表
     MultiFuncFParamAST* func_params = (MultiFuncFParamAST *)branch[2];
@@ -283,7 +297,15 @@ class FuncDefAST : public BaseAST {
 
     ret_str += ") ";
     std::cout << ") ";
-    func_type->Dump(ret_str);
+    // func_type->Dump(ret_str);
+
+    if(func_table[ident] == "int"){
+        ret_str += ": i32";
+        std::cout << ": i32";
+    }
+    else if(func_table[ident] == "void"){
+
+    }
 
     ret_str += " { \n";
     std::cout << " {" << std::endl;
@@ -353,6 +375,9 @@ class FuncDefAST : public BaseAST {
 
     cur_table = cur_table->parent;
     cur_sym_table_list->pop_back();
+    // 退出函数，清空当前函数名
+    // 除了函数，就是全局变量，如果cur_func_name为空，那么就意味着是全局变量定义
+    cur_func_name.clear();
 
     ret_str += "}\n";
     std::cout << "}\n";
@@ -492,30 +517,47 @@ class LValAST : public BaseAST{
         int depth = cur_table->table_index;
         std::string inside_func = cur_table->func_name;
         SymbolTable *used_table = cur_table;
+        Symbol tmp_ans;
+        std::string ans;
 
         // 看看ident到底是哪儿定义的
-        while(used_table->sym_table.find(ident) == used_table->sym_table.end()){
+        while(used_table && used_table->sym_table.find(ident) == used_table->sym_table.end()){
             used_table = used_table->parent;
         }
-        if(used_table == NULL)
-            std::cout << "LVAL-SYMTABLE WRONG" << std::endl;
-        depth = used_table->table_index;
-        inside_func = used_table->func_name;
-        Symbol tmp_ans = used_table->sym_table[ident];
-        std::cout << "LVALTYPE " << tmp_ans.type << std::endl; 
-        std::string ans;
-        if(tmp_ans.type == _CONST){
-            ans = std::to_string(tmp_ans.sym_val);
+        // 说明局部没有，看看全局
+        if(used_table == NULL){
+            // std::cout << "LVAL-SYMTABLE WRONG" << std::endl;
+            if(global_var_table.find(ident) == global_var_table.end()){
+                std::cout << "LVAL-SYMTABLE WRONG" << std::endl;
+            }
+            tmp_ans = global_var_table[ident];
+            if(tmp_ans.type == _CONST_GLOBAL){
+                ans = std::to_string(tmp_ans.sym_val);
+            }
+            else if(tmp_ans.type == _NUM_GLOBAL){
+                ans = "@" + ident + "_" + "global";
+            }
         }
-        else if(tmp_ans.type == _NUM || tmp_ans.type == _UNK || tmp_ans.type == _NUM_UNCALC){
-            std::cout << "NUM OR UNK" << std::endl;
-            ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
-        }
-        else if(tmp_ans.type == _CONST_UNCALC){
-
-        }
-        else if(tmp_ans.type == _PARAM){
-            ans = "%" + ident + "_" + inside_func + "_" + std::to_string(depth);
+        
+        else{ // 说明在局部找到了
+            depth = used_table->table_index;
+            inside_func = used_table->func_name;
+            
+            tmp_ans = used_table->sym_table[ident];
+            std::cout << "LVALTYPE " << tmp_ans.type << std::endl; 
+            if(tmp_ans.type == _CONST){
+                ans = std::to_string(tmp_ans.sym_val);
+            }
+            else if(tmp_ans.type == _NUM || tmp_ans.type == _UNK || tmp_ans.type == _NUM_UNCALC){
+                std::cout << "NUM OR UNK" << std::endl;
+                ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
+            }
+            else if(tmp_ans.type == _CONST_UNCALC){
+                std::cout << "IMPOSSIBLE CONST UNCALC" << std::endl;
+            }
+            else if(tmp_ans.type == _PARAM){
+                ans = "%" + ident + "_" + inside_func + "_" + std::to_string(depth);
+            }
         }
         return ans;
     }
@@ -523,19 +565,25 @@ class LValAST : public BaseAST{
         std::cout << "LVALCALC" << std::endl;
 
         SymbolTable *used_table = cur_table;
+        Symbol tmp_ans;
+        RetVal ans;
         // 看看ident到底是哪儿定义的
-        while(used_table->sym_table.find(ident) == used_table->sym_table.end()){
+        while(used_table && used_table->sym_table.find(ident) == used_table->sym_table.end()){
             used_table = used_table->parent;
         }
-        Symbol tmp_ans = used_table->sym_table[ident];
+        if(used_table == NULL){
+            tmp_ans = global_var_table[ident];
+        }
+        else{
+            tmp_ans = used_table->sym_table[ident];
+        }
         // Symbol tmp_ans = cur_table->sym_table[ident];
         std::cout << "LVALTYPE in calc_val " << tmp_ans.type << std::endl; 
-        RetVal ans;
-        if(tmp_ans.type == _NUM || tmp_ans.type == _CONST){
+        if(tmp_ans.type == _NUM || tmp_ans.type == _CONST || tmp_ans.type == _CONST_GLOBAL){
             ans.value = tmp_ans.sym_val;
             ans.calcable = true;
         }
-        else {
+        else { // PARAM, GLOBAL, NUM_UNCALC, UNK
             ans.calcable = false;
         }
         return ans;
@@ -868,9 +916,10 @@ class MatchedStmtAST : public BaseAST{
             SymbolTable* used_table = cur_table;
 
             // 看看var_name到底是哪儿定义的
-            while(used_table->sym_table.find(var_name) == used_table->sym_table.end()){
+            while(used_table && used_table->sym_table.find(var_name) == used_table->sym_table.end()){
                 used_table = used_table->parent;
             }
+
             // int depth = used_table->table_index;
 
             // 计算结果已经由Exp->Calc(ret_str)得出
@@ -904,7 +953,13 @@ class MatchedStmtAST : public BaseAST{
 
             // 只可能有UNK, NUM, GLOBAL, PARAM
             // 先取出来看看
-            Symbol symb = used_table->sym_table[var_name];
+            Symbol symb;
+            if(used_table == NULL){
+                symb = global_var_table[var_name];
+            }
+            else {
+               symb = used_table->sym_table[var_name];
+            }
             std::cout << "LVAL = EXP CALCABLE? " << calc_value.calcable << std::endl;
             std::cout << "LVALTYPE " << symb.type << std::endl;
             if(calc_value.calcable){
@@ -912,7 +967,12 @@ class MatchedStmtAST : public BaseAST{
                     symb.type = _NUM;
                 }
                 symb.sym_val = value;
-                used_table->sym_table[var_name] = symb; // 存到对应的symtable中
+                if(used_table == NULL){
+                    global_var_table[var_name] = symb; // 如果是全局变量，存储到全局symtable中
+                }
+                else{
+                    used_table->sym_table[var_name] = symb; // 存到对应的symtable中
+                }
             }
             else{
                 if(symb.type == _UNK || symb.type == _NUM){
@@ -2149,12 +2209,10 @@ class LAndExpAST : public BaseAST{
             std::string ans1;
             std::string ans2;
 
+            // calc a
             tmp1 = branch[0]->Calc(ret_str);
-            tmp2 = branch[1]->Calc(ret_str);
-
             ans1 = tmp1;
-            ans2 = tmp2;
-            
+
             if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
@@ -2174,27 +2232,8 @@ class LAndExpAST : public BaseAST{
                 std::cout << "\n";
             }
 
-            if(tmp2[0] == '@' || (tmp2[0] == '%' && (tmp2[1] > '9' || tmp2[1] < '0'))){
-                ans2 = "%" + std::to_string(var_count);
-                var_count ++;
-
-                ret_str += "    ";
-                ret_str += ans2;
-                ret_str += " = ";
-                ret_str += "load ";
-                ret_str += tmp2;
-                ret_str += "\n";
-
-                std::cout << "    ";
-                std::cout << ans2;
-                std::cout << " = ";
-                std::cout << "load ";
-                std::cout << tmp2;
-                std::cout << "\n";
-            }
-
+            // calc a != 0
             std::string neqa;
-            std::string neqb;
 
             neqa = "%" + std::to_string(var_count);
             var_count ++;
@@ -2212,23 +2251,7 @@ class LAndExpAST : public BaseAST{
             std::cout << ans1;
             std::cout << "\n";
 
-            neqb = "%" + std::to_string(var_count);
-            var_count ++;
-            ret_str += "    ";
-            ret_str += neqb;
-            ret_str += " = ";
-            ret_str += "ne  0, ";
-            ret_str += ans2;
-            ret_str += "\n";
-
-            std::cout << "    ";
-            std::cout << neqb;
-            std::cout << " = ";
-            std::cout << "ne  0, ";
-            std::cout << ans2;
-            std::cout << "\n";
-
-            // 6.2
+            // 6.2 check (a != 0)
             // 这个语句一定在matched_stmt内部，因此不会出现需要考虑ret的情况
             std::string tmp_ans = "@temp_result_" + std::to_string(tmp_result_count);
             tmp_result_count ++;
@@ -2293,6 +2316,47 @@ class LAndExpAST : public BaseAST{
 
             std::cout << then;
             std::cout << ":\n";
+
+            tmp2 = branch[1]->Calc(ret_str);
+            ans2 = tmp2;
+            
+            if(tmp2[0] == '@' || (tmp2[0] == '%' && (tmp2[1] > '9' || tmp2[1] < '0'))){
+                ans2 = "%" + std::to_string(var_count);
+                var_count ++;
+
+                ret_str += "    ";
+                ret_str += ans2;
+                ret_str += " = ";
+                ret_str += "load ";
+                ret_str += tmp2;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << ans2;
+                std::cout << " = ";
+                std::cout << "load ";
+                std::cout << tmp2;
+                std::cout << "\n";
+            }
+
+            // calc (b != 0)
+            std::string neqb;
+
+            neqb = "%" + std::to_string(var_count);
+            var_count ++;
+            ret_str += "    ";
+            ret_str += neqb;
+            ret_str += " = ";
+            ret_str += "ne  0, ";
+            ret_str += ans2;
+            ret_str += "\n";
+
+            std::cout << "    ";
+            std::cout << neqb;
+            std::cout << " = ";
+            std::cout << "ne  0, ";
+            std::cout << ans2;
+            std::cout << "\n";
 
             std::string tmp_rhs = "%" + std::to_string(var_count);
             var_count ++;
@@ -2429,12 +2493,10 @@ class LOrExpAST : public BaseAST{
             std::string ans1;
             std::string ans2;
 
+            // calc a
             tmp1 = branch[0]->Calc(ret_str);
-            tmp2 = branch[1]->Calc(ret_str);
-
             ans1 = tmp1;
-            ans2 = tmp2;
-            
+
             if(tmp1[0] == '@' || (tmp1[0] == '%' && (tmp1[1] > '9' || tmp1[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
@@ -2454,29 +2516,9 @@ class LOrExpAST : public BaseAST{
                 std::cout << "\n";
             }
 
-            if(tmp2[0] == '@' || (tmp2[0] == '%' && (tmp2[1] > '9' || tmp2[1] < '0'))){
-                ans2 = "%" + std::to_string(var_count);
-                var_count ++;
-
-                ret_str += "    ";
-                ret_str += ans2;
-                ret_str += " = ";
-                ret_str += "load ";
-                ret_str += tmp2;
-                ret_str += "\n";
-
-                std::cout << "    ";
-                std::cout << ans2;
-                std::cout << " = ";
-                std::cout << "load ";
-                std::cout << tmp2;
-                std::cout << "\n";
-            }
-
+            // calc !(a == 0)
             std::string eqa;
-            std::string eqb;
             std::string na;
-            std::string nb;
 
             eqa = "%" + std::to_string(var_count);
             var_count ++;
@@ -2510,39 +2552,7 @@ class LOrExpAST : public BaseAST{
             std::cout << eqa;
             std::cout << "\n";
 
-            eqb = "%" + std::to_string(var_count);
-            var_count ++;
-            ret_str += "    ";
-            ret_str += eqb;
-            ret_str += " = ";
-            ret_str += "eq  0, ";
-            ret_str += ans2;
-            ret_str += "\n";
-
-            std::cout << "    ";
-            std::cout << eqb;
-            std::cout << " = ";
-            std::cout << "eq  0, ";
-            std::cout << ans2;
-            std::cout << "\n";
-
-            nb = "%" + std::to_string(var_count);
-            var_count ++;
-            ret_str += "    ";
-            ret_str += nb;
-            ret_str += " = ";
-            ret_str += "eq  0, ";
-            ret_str += eqb;
-            ret_str += "\n";
-
-            std::cout << "    ";
-            std::cout << nb;
-            std::cout << " = ";
-            std::cout << "eq  0, ";
-            std::cout << eqb;
-            std::cout << "\n";
-
-            // 6.2
+            // 6.2 check !(a == 0) first
             std::string tmp_ans = "@temp_result_" + std::to_string(tmp_result_count);
             tmp_result_count ++;
             
@@ -2606,6 +2616,65 @@ class LOrExpAST : public BaseAST{
 
             std::cout << then;
             std::cout << ":\n";
+
+            // calc b
+            tmp2 = branch[1]->Calc(ret_str);
+            ans2 = tmp2;
+            
+            if(tmp2[0] == '@' || (tmp2[0] == '%' && (tmp2[1] > '9' || tmp2[1] < '0'))){
+                ans2 = "%" + std::to_string(var_count);
+                var_count ++;
+
+                ret_str += "    ";
+                ret_str += ans2;
+                ret_str += " = ";
+                ret_str += "load ";
+                ret_str += tmp2;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << ans2;
+                std::cout << " = ";
+                std::cout << "load ";
+                std::cout << tmp2;
+                std::cout << "\n";
+            }
+
+            // calc !(b == 0)
+            std::string eqb;
+            std::string nb;
+
+            eqb = "%" + std::to_string(var_count);
+            var_count ++;
+            ret_str += "    ";
+            ret_str += eqb;
+            ret_str += " = ";
+            ret_str += "eq  0, ";
+            ret_str += ans2;
+            ret_str += "\n";
+
+            std::cout << "    ";
+            std::cout << eqb;
+            std::cout << " = ";
+            std::cout << "eq  0, ";
+            std::cout << ans2;
+            std::cout << "\n";
+
+            nb = "%" + std::to_string(var_count);
+            var_count ++;
+            ret_str += "    ";
+            ret_str += nb;
+            ret_str += " = ";
+            ret_str += "eq  0, ";
+            ret_str += eqb;
+            ret_str += "\n";
+
+            std::cout << "    ";
+            std::cout << nb;
+            std::cout << " = ";
+            std::cout << "eq  0, ";
+            std::cout << eqb;
+            std::cout << "\n";
 
             std::string tmp_rhs = "%" + std::to_string(var_count);
             var_count ++;
@@ -2731,6 +2800,7 @@ class DeclAST : public BaseAST{
     std::unique_ptr<BaseAST> const_decl;
     std::unique_ptr<BaseAST> var_decl;
     void Dump(std::string& ret_str) const override{
+        std::cout << "DECL" << std::endl;
         if(branch[0]->type == _VarDecl){
             var_decl->Dump(ret_str);
         }
@@ -2748,6 +2818,7 @@ class ConstDeclAST : public BaseAST{
     std::unique_ptr<BaseAST> btype;
     std::unique_ptr<BaseAST> multi_const_def;
     void Dump(std::string& ret_str) const override{
+        std::cout << "CONSTDECL" << std::endl;
         btype->Dump(ret_str);
         multi_const_def->Dump(ret_str);
     }
@@ -2761,6 +2832,7 @@ class VarDeclAST : public BaseAST {
     std::unique_ptr<BaseAST> btype;
     std::unique_ptr<BaseAST> multi_var_def;
     void Dump(std::string& ret_str) const override {
+        std::cout << "VARDECL" << std::endl;
         btype->Dump(ret_str);
         multi_var_def->Dump(ret_str);
     }
@@ -2797,6 +2869,7 @@ class MultiVarDefAST : public BaseAST{
         std::cout << "MULTIVARDEF" << std::endl;
         // std::cout << branch.size() << std::endl;
         if(branch[0]->type == _VarDef){
+            std::cout << "SINGLEVARDEF" << std::endl;
             var_def->Dump(ret_str);
         }
         else if(branch[0]->type == _MultiVarDef){
@@ -2815,6 +2888,7 @@ class ConstDefAST : public BaseAST{
     std::unique_ptr<BaseAST> const_init_val;
     void Dump(std::string& ret_str) const override{
         std::cout << "CONSTDEF" << std::endl;
+        std::string const_ans;
         RetVal ans = const_init_val->Calc_val();
         Symbol symb;
         if(ans.calcable){
@@ -2824,7 +2898,33 @@ class ConstDefAST : public BaseAST{
         else{
             symb.type = _CONST_UNCALC;
         }
-        cur_table->sym_table[ident] = symb;
+
+        // 如果当前函数名为空，那么这是一个全局定义
+        if(cur_func_name.empty()){
+            symb.type = _CONST_GLOBAL;
+            global_var_table[ident] = symb;
+            /*const_ans = "@" + ident + "_" + "global";
+
+            ret_str += "    global ";
+            ret_str += const_ans;
+            ret_str += " = alloc i32";
+
+            std::cout << "    global ";
+            std::cout << const_ans;
+            std::cout << " = alloc i32";
+
+            ret_str += ", ";
+            ret_str += std::to_string(ans.value);
+
+            std::cout << ", ";
+            std::cout << std::to_string(ans.value);
+            
+            ret_str += "\n";
+            std::cout << "\n";*/
+        }
+        else{
+            cur_table->sym_table[ident] = symb;
+        }
     }
 };
 
@@ -2887,24 +2987,47 @@ class VarDefAST : public BaseAST{
         std::cout << "VARDEF" << std::endl;
         if(branch.size() == 1){
             Symbol symb;
-            // 也有可能是GLOBAL类型
-            symb.type = _UNK;
-            symb.sym_val = 0;
-            cur_table->sym_table[ident] = symb;
-            int depth = cur_table->table_index;
-            std::string inside_func = cur_table->func_name;
-
             std::string ans;
-            ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
 
+            // 也有可能是GLOBAL类型
+            if(cur_func_name.empty()){
+                symb.type = _NUM_GLOBAL;
+                symb.sym_val = 0;
+                global_var_table[ident] = symb;
+                ans = "@" + ident + "_" + "global";
+            }
+            else {
+                symb.type = _UNK;
+                symb.sym_val = 0;
+                cur_table->sym_table[ident] = symb;
+                int depth = cur_table->table_index;
+                std::string inside_func = cur_table->func_name;
+                ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
+            }
+            
             ret_str += "    ";
+            std::cout << "    ";
+            
+            if(symb.type == _NUM_GLOBAL){
+                ret_str += "global ";
+                std::cout << "global ";
+            }
+            
             ret_str += ans;
             ret_str += " = alloc i32";
-            ret_str += "\n";
 
-            std::cout << "    ";
             std::cout << ans;
             std::cout << " = alloc i32";
+
+            if(symb.type == _NUM_GLOBAL){
+                ret_str += ", ";
+                ret_str += "zeroinit";
+
+                std::cout << ", ";
+                std::cout << "zeroinit";
+            }
+            
+            ret_str += "\n";
             std::cout << "\n";
         }
         else if(branch.size() == 2){
@@ -2914,40 +3037,67 @@ class VarDefAST : public BaseAST{
             value = init_val->Calc_val();
 
             Symbol symb;
-            if(value.calcable){
-                symb.type = _NUM;
+
+            if(cur_func_name.empty()){
+                symb.type = _NUM_GLOBAL;
                 symb.sym_val = value.value;
+                global_var_table[ident] = symb;
+                ans = "@" + ident + "_" + "global";
             }
             else{
-                symb.type = _NUM_UNCALC;
+                if(value.calcable){
+                    symb.type = _NUM;
+                    symb.sym_val = value.value;
+                }
+                else{
+                    symb.type = _NUM_UNCALC;
+                }
+                cur_table->sym_table[ident] = symb;
+                int depth = cur_table->table_index;
+                std::string inside_func = cur_table->func_name;
+                ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
             }
-            cur_table->sym_table[ident] = symb;
-            int depth = cur_table->table_index;
-            std::string inside_func = cur_table->func_name;
-            // init_val->Dump(ret_str);
-
-            ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
+            
             val = init_val->Calc(ret_str); // 可能是立即数，也可能是%0
 
             ret_str += "    ";
+            std::cout << "    ";
+            
+            if(symb.type == _NUM_GLOBAL){
+                ret_str += "global ";
+                std::cout << "global ";
+            }
+        
             ret_str += ans;
             ret_str += " = alloc i32";
-            ret_str += "\n";
-            ret_str += "    store ";
-            ret_str += val;
-            ret_str += ", ";
-            ret_str += ans;
-            ret_str += "\n";
 
-            std::cout << "    ";
             std::cout << ans;
             std::cout << " = alloc i32";
+
+            if(symb.type == _NUM_GLOBAL){
+                ret_str += ", ";
+                ret_str += std::to_string(value.value);
+
+                std::cout << ", ";
+                std::cout << std::to_string(value.value);
+            }
+
+            ret_str += "\n";
             std::cout << "\n";
-            std::cout << "  store ";
-            std::cout << val;
-            std::cout << ", ";
-            std::cout << ans;
-            std::cout << "\n";
+            
+            if(symb.type == _NUM  || symb.type == _NUM_UNCALC){
+                ret_str += "    store ";
+                ret_str += val;
+                ret_str += ", ";
+                ret_str += ans;
+                ret_str += "\n";
+
+                std::cout << "  store ";
+                std::cout << val;
+                std::cout << ", ";
+                std::cout << ans;
+                std::cout << "\n";
+            }
         }
     }
 };
