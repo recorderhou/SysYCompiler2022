@@ -20,6 +20,7 @@ extern FILE *yyin;
 extern FILE *yyout;
 extern int yyparse(unique_ptr<BaseAST> &ast);
 int var_count = 0;
+int ptr_count = 0;
 int register_count = 0; 
 int block_count = 0;
 int end_count = 0;
@@ -31,6 +32,7 @@ int prev_cur_while = 0;
 int cur_while = 0;
 int cur_while_end;
 bool break_continue = false;
+int cur_param_num = 0;
 
 Symbol symm;
 SymTable sym_table;
@@ -40,6 +42,8 @@ SymTableList sym_table_list;
 ProgramSymTableList program_sym_table;
 SymbolTable* cur_table = NULL;
 SymTableList* cur_sym_table_list;
+CurParamType cur_param_list;
+FuncParamType program_param_list;
 std::string cur_func_name = "default_global";
 
 map<koopa_raw_function_t, int> func_sp; // 记录每个函数占据栈的大小

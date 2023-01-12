@@ -9,24 +9,34 @@ extern int var_count;
 
 // 参数param，全局变量，以及初始化/赋值时使用参数和全局变量的
 enum SYM_TYPE{
-    _CONST, _NUM, _STR, _UNK, _PARAM, _NUM_GLOBAL, _CONST_GLOBAL, _NUM_UNCALC, _CONST_UNCALC, 
+    _CONST, _NUM, _ARRAY, _ARRAY_UNCALC, _GLOBAL_ARRAY, _CONST_ARRAY, _CONST_GLOBAL_ARRAY, \
+    _UNK, _PARAM, _NUM_GLOBAL, _CONST_GLOBAL, _NUM_UNCALC, _CONST_UNCALC, 
+};
+
+enum PARAM_TYPE {
+    _PARAM_ARRAY, _PARAM_NUM, 
 };
 
 struct RetVal {
     bool calcable;
     int value;
+    std::vector<int> array_value;
     std::string sym_str; 
 };
+
 
 struct Symbol{
   SYM_TYPE type;
   int sym_val;
+  std::vector<int> array_val; // 数组的值
   std::string sym_str;
 };
 
 typedef std::map<std::string, Symbol> SymTable;
 typedef std::map<std::string, std::string> FuncTable;
 typedef std::map<std::string, Symbol> GlobalVarTable;
+typedef std::map<std::string, PARAM_TYPE> CurParamType;
+typedef std::map<std::string, CurParamType> FuncParamType; 
 
 struct SymbolTable{
     SymTable sym_table;
@@ -50,6 +60,8 @@ extern FuncTable func_table;
 extern GlobalVarTable global_var_table;
 extern SymTableList sym_table_list;
 extern ProgramSymTableList program_sym_table;
+extern FuncParamType program_param_list;
+extern CurParamType cur_param_list;
 
 extern int block_count;
 extern SymbolTable* cur_table;
@@ -59,6 +71,7 @@ extern int if_count;
 extern int else_count;
 extern int tmp_result_count;
 extern int while_count;
+extern int ptr_count;
 extern int cur_while;
 extern int cur_while_end;
 extern int prev_cur_while;
@@ -72,7 +85,8 @@ enum TYPE{
   _MultiConstDef, _ConstDef, _MultiBlockItem, _BlockItem, _Decl, _Stmt, \
   _LVal, _ConstDecl, _VarDecl, _VarDef, _MultiVarDef, _Ident, _Return, _Block, \
   _OpenStmt, _MatchedStmt, _Continue, _Break, _CompUnit, _FuncDef, \
-  _MultiFuncFParam, _FuncFParam, _MultiFuncRParam, _FuncRParam, 
+  _MultiFuncFParam, _FuncFParam, _MultiFuncRParam, _FuncRParam, \
+  _MultiConstArrayInitVal, _MultiArrayInitVal, _ConstExp, _InitVal, _ConstInitVal\
 };
 
 // 所有 AST 的基类
@@ -88,6 +102,10 @@ class BaseAST {
     return ans;
   }
   virtual std::vector<std::string> Param(std::string& ret_str){
+    std::vector<std::string> aaa;
+    return aaa;
+  }
+  virtual std::vector<std::string> ArrayInit(std::string& ret_str){
     std::vector<std::string> aaa;
     return aaa;
   }
@@ -253,9 +271,19 @@ class FuncFParamAST : public BaseAST {
         ret_str += "@" + ident;
         std::cout << "@" + ident;
         BTypeAST * btype_ptr = (BTypeAST *)branch[0];
-        if(btype_ptr->btype_name == "int"){
-            ret_str += " : i32";
-            std::cout << " : i32";
+        if(branch.size() == 2){
+            if(btype_ptr->btype_name == "int"){
+                ret_str += " : i32";
+                std::cout << " : i32";
+                cur_param_list[ident] = _PARAM_NUM;
+            }
+        }
+        else if(branch.size() == 3){ // 数组
+            if(btype_ptr->btype_name == "int"){
+                ret_str += " : *i32";
+                std::cout << " : *i32";
+                cur_param_list[ident] = _PARAM_ARRAY;
+            }
         }
     }
     std::vector<std::string> Param(std::string& ret_str) override {
@@ -278,6 +306,11 @@ class FuncDefAST : public BaseAST {
   void Dump(std::string& ret_str) const override {
     std::cout << "FUNCDEF" << std::endl;
     // 保存函数类型函数名到全局函数符号表
+    CurParamType param_type_list;
+    // param_type_list.clear();
+    program_param_list[ident] = param_type_list;
+    cur_param_list = program_param_list[ident];
+    cur_param_list.clear(); // 清空参数类型表
     BTypeAST* func_type_ptr = (BTypeAST *)branch[0];
     func_table[ident] = func_type_ptr->btype_name;
 
@@ -344,7 +377,11 @@ class FuncDefAST : public BaseAST {
         std::string param_name = "@" + param_list[i];
         ret_str += "    ";
         ret_str += param_register;
-        ret_str += " = alloc i32\n";
+        ret_str += " = alloc ";
+        if(cur_param_list[param_list[i]] == _PARAM_ARRAY){
+            ret_str += "*";
+        }
+        ret_str += "i32\n";
         ret_str += "    store ";
         ret_str += param_name;
         ret_str += ", ";
@@ -353,7 +390,11 @@ class FuncDefAST : public BaseAST {
 
         std::cout << "  ";
         std::cout << param_register;
-        std::cout << " = alloc i32\n";
+        std::cout << " = alloc ";
+        if(cur_param_list[param_list[i]] == _PARAM_ARRAY){
+            std::cout <<  "*";
+        }
+        std::cout << "i32\n";
         std::cout << "  store ";
         std::cout << param_name;
         std::cout << ", ";
@@ -509,6 +550,7 @@ class LValAST : public BaseAST{
         type = _LVal;
     }
     std::string ident;
+    std::unique_ptr<BaseAST> Exp;
     void Dump(std::string& ret_str) const override{
 
     }
@@ -537,6 +579,106 @@ class LValAST : public BaseAST{
             else if(tmp_ans.type == _NUM_GLOBAL){
                 ans = "@" + ident + "_" + "global";
             }
+            else if(tmp_ans.type == _CONST_GLOBAL_ARRAY){
+                ans = "%" + ident + "_" + "global_ptr" + "_" + std::to_string(ptr_count);
+                ptr_count ++;
+                std::string arr_name = "@" + ident + "_" + "global";
+                std::string index;
+                std::string index_ans;
+                if(branch.size() == 1){ // 数组参数
+                    index = "0";
+                    index_ans = index;
+                }
+                else if(branch.size() == 2){ // int
+                    index = Exp->Calc(ret_str);
+                    index_ans = index;
+                }
+
+                if(index[0] == '@' || (index[0] == '%' && (index[1] > '9' || index[1] < '0'))){
+                    index_ans = "%" + std::to_string(var_count);
+                    var_count ++;
+
+                    ret_str += "    ";
+                    ret_str += index_ans;
+                    ret_str += " = ";
+                    ret_str += "load ";
+                    ret_str += index;
+                    ret_str += "\n";
+
+                    std::cout << "    ";
+                    std::cout << index_ans;
+                    std::cout << " = ";
+                    std::cout << "load ";
+                    std::cout << index;
+                    std::cout << "\n";
+                }
+
+                ret_str += "    ";
+                ret_str += ans;
+                ret_str += " = getelemptr ";
+                ret_str += arr_name;
+                ret_str += ", ";
+                ret_str += index_ans;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << ans;
+                std::cout << " = getelemptr ";
+                std::cout << arr_name;
+                std::cout << ", ";
+                std::cout << index_ans;
+                std::cout << "\n";
+            }
+            else if(tmp_ans.type == _GLOBAL_ARRAY){
+                ans = "%" + ident + "_" + "global_ptr" + "_" + std::to_string(ptr_count);
+                ptr_count ++;
+                std::string arr_name = "@" + ident + "_" + "global";
+                std::string index;
+                std::string index_ans;
+                if(branch.size() == 1){ // 数组参数
+                    index = "0";
+                    index_ans = index;
+                }
+                else if(branch.size() == 2){ // int
+                    index = Exp->Calc(ret_str);
+                    index_ans = index;
+                }
+
+                if(index[0] == '@' || (index[0] == '%' && (index[1] > '9' || index[1] < '0'))){
+                    index_ans = "%" + std::to_string(var_count);
+                    var_count ++;
+
+                    ret_str += "    ";
+                    ret_str += index_ans;
+                    ret_str += " = ";
+                    ret_str += "load ";
+                    ret_str += index;
+                    ret_str += "\n";
+
+                    std::cout << "    ";
+                    std::cout << index_ans;
+                    std::cout << " = ";
+                    std::cout << "load ";
+                    std::cout << index;
+                    std::cout << "\n";
+                }
+
+                ret_str += "    ";
+                ret_str += ans;
+                ret_str += " = getelemptr ";
+                ret_str += arr_name;
+                ret_str += ", ";
+                ret_str += index_ans;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << ans;
+                std::cout << " = getelemptr ";
+                std::cout << arr_name;
+                std::cout << ", ";
+                std::cout << index_ans;
+                std::cout << "\n";
+            }
         }
         
         else{ // 说明在局部找到了
@@ -557,6 +699,106 @@ class LValAST : public BaseAST{
             }
             else if(tmp_ans.type == _PARAM){
                 ans = "%" + ident + "_" + inside_func + "_" + std::to_string(depth);
+            }
+            else if(tmp_ans.type == _CONST_ARRAY){
+                ans = "%" + ident +  + "_" + inside_func + "_" + std::to_string(depth) + "_" + "ptr" + "_" + std::to_string(ptr_count);
+                ptr_count ++;
+                std::string arr_name = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
+                std::string index;
+                std::string index_ans;
+                if(branch.size() == 1){ // 数组参数
+                    index = "0";
+                    index_ans = index;
+                }
+                else if(branch.size() == 2){ // int
+                    index = Exp->Calc(ret_str);
+                    index_ans = index;
+                }
+
+                if(index[0] == '@' || (index[0] == '%' && (index[1] > '9' || index[1] < '0'))){
+                    index_ans = "%" + std::to_string(var_count);
+                    var_count ++;
+
+                    ret_str += "    ";
+                    ret_str += index_ans;
+                    ret_str += " = ";
+                    ret_str += "load ";
+                    ret_str += index;
+                    ret_str += "\n";
+
+                    std::cout << "    ";
+                    std::cout << index_ans;
+                    std::cout << " = ";
+                    std::cout << "load ";
+                    std::cout << index;
+                    std::cout << "\n";
+                }
+
+                ret_str += "    ";
+                ret_str += ans;
+                ret_str += " = getelemptr ";
+                ret_str += arr_name;
+                ret_str += ", ";
+                ret_str += index_ans;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << ans;
+                std::cout << " = getelemptr ";
+                std::cout << arr_name;
+                std::cout << ", ";
+                std::cout << index_ans;
+                std::cout << "\n";
+            }
+            else if(tmp_ans.type == _ARRAY){
+                ans = "%" + ident +  + "_" + inside_func + "_" + std::to_string(depth) + "_" + "ptr" + "_" + std::to_string(ptr_count);
+                ptr_count ++;
+                std::string arr_name = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
+                std::string index;
+                std::string index_ans;
+                if(branch.size() == 1){ // 数组参数
+                    index = "0";
+                    index_ans = index;
+                }
+                else if(branch.size() == 2){ // int
+                    index = Exp->Calc(ret_str);
+                    index_ans = index;
+                }
+
+                if(index[0] == '@' || (index[0] == '%' && (index[1] > '9' || index[1] < '0'))){
+                    index_ans = "%" + std::to_string(var_count);
+                    var_count ++;
+
+                    ret_str += "    ";
+                    ret_str += index_ans;
+                    ret_str += " = ";
+                    ret_str += "load ";
+                    ret_str += index;
+                    ret_str += "\n";
+
+                    std::cout << "    ";
+                    std::cout << index_ans;
+                    std::cout << " = ";
+                    std::cout << "load ";
+                    std::cout << index;
+                    std::cout << "\n";
+                }
+
+                ret_str += "    ";
+                ret_str += ans;
+                ret_str += " = getelemptr ";
+                ret_str += arr_name;
+                ret_str += ", ";
+                ret_str += index_ans;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << ans;
+                std::cout << " = getelemptr ";
+                std::cout << arr_name;
+                std::cout << ", ";
+                std::cout << index_ans;
+                std::cout << "\n";
             }
         }
         return ans;
@@ -582,6 +824,16 @@ class LValAST : public BaseAST{
         if(tmp_ans.type == _NUM || tmp_ans.type == _CONST || tmp_ans.type == _CONST_GLOBAL){
             ans.value = tmp_ans.sym_val;
             ans.calcable = true;
+        }
+        else if(tmp_ans.type == _ARRAY || tmp_ans.type == _CONST_ARRAY || tmp_ans.type == _CONST_GLOBAL_ARRAY){
+            RetVal index_exp = Exp->Calc_val();
+            if(index_exp.calcable){
+                ans.calcable = true;
+                ans.value = tmp_ans.array_val[index_exp.value];
+            }
+            else{
+                ans.calcable = false;
+            }
         }
         else { // PARAM, GLOBAL, NUM_UNCALC, UNK
             ans.calcable = false;
@@ -1463,7 +1715,10 @@ class UnaryExpAST : public BaseAST{
         }
         else if(branch[0]->type == _Ident){ // 函数调用
             std::cout << "CHECK FUNC TYPE" << func_table[ident] << std::endl;
+            CurParamType prev_param_list = cur_param_list;
+            cur_param_list = program_param_list[ident];
             std::vector<std::string> cur_param = multi_funcr_param->Param(ret_str);
+            int length = cur_param.size();
             if(func_table[ident] == "int"){
                 ans = "%" + std::to_string(var_count);
                 var_count ++;
@@ -1503,6 +1758,7 @@ class UnaryExpAST : public BaseAST{
             }
             ret_str += ")\n";
             std::cout << ")\n";
+            cur_param_list = prev_param_list;
         }
 
         return ans;
@@ -1561,6 +1817,7 @@ class MultiFuncRParamAST : public BaseAST {
 
         }
         else if(branch[0]->type == _Exp){
+            // std::cout << "FUNCRPARAM EXP " << std::endl;
             tmp_ans = branch[0]->Calc(ret_str);
             std::string ans1 = tmp_ans;
             std::cout << "FUNCRPARAM EXP " << tmp_ans << std::endl;
@@ -1589,7 +1846,6 @@ class MultiFuncRParamAST : public BaseAST {
             tmp = multi_funcr_param->Param(ret_str);
             tmp_ans = branch[1]->Calc(ret_str);
             std::string ans1 = tmp_ans;
-            // std::cout << "FUNCRPARAM EXP " << tmp_ans << std::endl;
             if(tmp_ans[0] == '@' || (tmp_ans[0] == '%' && (tmp_ans[1] > '9' || tmp_ans[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
@@ -2886,44 +3142,147 @@ class ConstDefAST : public BaseAST{
     }
     std::string ident;
     std::unique_ptr<BaseAST> const_init_val;
+    std::unique_ptr<BaseAST> const_exp;
     void Dump(std::string& ret_str) const override{
         std::cout << "CONSTDEF" << std::endl;
-        std::string const_ans;
-        RetVal ans = const_init_val->Calc_val();
-        Symbol symb;
-        if(ans.calcable){
-            symb.type = _CONST;
-            symb.sym_val = ans.value;
+        if(branch.size() == 2){ // 数
+            std::string const_ans;
+            RetVal ans = const_init_val->Calc_val();
+            Symbol symb;
+            if(ans.calcable){
+                symb.type = _CONST;
+                symb.sym_val = ans.value;
+            }
+            else{
+                symb.type = _CONST_UNCALC;
+            }
+
+            // 如果当前函数名为空，那么这是一个全局定义
+            if(cur_func_name.empty()){
+                symb.type = _CONST_GLOBAL;
+                global_var_table[ident] = symb;
+            }
+            else{
+                cur_table->sym_table[ident] = symb;
+            }
         }
-        else{
-            symb.type = _CONST_UNCALC;
-        }
-
-        // 如果当前函数名为空，那么这是一个全局定义
-        if(cur_func_name.empty()){
-            symb.type = _CONST_GLOBAL;
-            global_var_table[ident] = symb;
-            /*const_ans = "@" + ident + "_" + "global";
-
-            ret_str += "    global ";
-            ret_str += const_ans;
-            ret_str += " = alloc i32";
-
-            std::cout << "    global ";
-            std::cout << const_ans;
-            std::cout << " = alloc i32";
-
-            ret_str += ", ";
-            ret_str += std::to_string(ans.value);
-
-            std::cout << ", ";
-            std::cout << std::to_string(ans.value);
+        else if(branch.size() == 3){ // 数组
+            std::string const_ans;
+            std::vector<int> array_init_vec;
+            int length = 0;
+            bool zero_init = false;
+            RetVal len = const_exp->Calc_val();
+            RetVal ans = const_init_val->Calc_val();
+            Symbol symb;
+            if(ans.calcable){
+                symb.type = _CONST_ARRAY;
+                symb.array_val = ans.array_value;
+                array_init_vec = ans.array_value;
+                length = len.value;
+            }
+            else {
+                std::cout << "CONST ARRAY INIT WRONG - CONSTDEF" << std::endl;
+            }
+            if(ans.array_value.size() == 0){
+                zero_init = true;
+            }
             
-            ret_str += "\n";
-            std::cout << "\n";*/
-        }
-        else{
-            cur_table->sym_table[ident] = symb;
+            // 补0
+            int extra_zero = 0;
+            if(array_init_vec.size() < length){
+                extra_zero = length - array_init_vec.size();
+            }
+            for(int i = 0; i < extra_zero; ++ i){
+                array_init_vec.push_back(0);
+            }
+            symb.array_val = array_init_vec;
+
+            ret_str += "    ";
+            std::cout << "  ";
+
+            // 如果当前函数名为空，那么这是一个全局定义
+            if(cur_func_name.empty()){
+                symb.type = _CONST_GLOBAL_ARRAY;
+                global_var_table[ident] = symb;
+                const_ans = "@" + ident + "_" + "global";
+
+                ret_str += "global ";
+                std::cout << "global ";
+            }
+            else{
+                cur_table->sym_table[ident] = symb;
+                int depth = cur_table->table_index;
+                std::string inside_func = cur_table->func_name;
+                const_ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
+            }
+
+            ret_str += const_ans;
+            ret_str += " = alloc [i32, ";
+            ret_str += std::to_string(length);
+            ret_str += "]";
+
+            std::cout << const_ans;
+            std::cout << " = alloc [i32, ";
+            std::cout << std::to_string(length);
+            std::cout << "]";
+
+            if(symb.type == _CONST_GLOBAL_ARRAY){
+                if(zero_init){
+                    ret_str += ", zeroinit\n";
+                    std::cout << ", zeroinit\n";
+                }
+                else{
+                    ret_str += ", {";
+                    std::cout << ", {";
+
+                    if(array_init_vec.size()){
+                        ret_str += std::to_string(array_init_vec[0]);
+                        std::cout << std::to_string(array_init_vec[0]);
+                    }
+                    for(int i = 1; i < array_init_vec.size(); ++ i){
+                        ret_str += ", ";
+                        std::cout << ", ";
+                        ret_str += std::to_string(array_init_vec[i]);
+                        std::cout << std::to_string(array_init_vec[i]);
+                    }
+                    ret_str += "}\n";
+                    std::cout << "}\n";
+                    }
+            }
+            else if(symb.type == _CONST_ARRAY){
+                ret_str += "\n";
+                std::cout << "\n";
+                for(int i = 0; i < length; ++ i){
+                    std::string init_index = "%" + std::to_string(var_count);
+                    var_count ++;
+                    ret_str += "    ";
+                    ret_str += init_index;
+                    ret_str += " = ";
+                    ret_str += "getelemptr ";
+                    ret_str += const_ans;
+                    ret_str += ", ";
+                    ret_str += std::to_string(i);
+                    ret_str += "\n    store ";
+                    ret_str += std::to_string(array_init_vec[i]);
+                    ret_str += ", ";
+                    ret_str += init_index;
+                    ret_str += "\n";
+
+                    std::cout << "    ";
+                    std::cout << init_index;
+                    std::cout << " = ";
+                    std::cout << "getelemptr ";
+                    std::cout << const_ans;
+                    std::cout << ", ";
+                    std::cout << std::to_string(i);
+                    std::cout << "\n    store ";
+                    std::cout << std::to_string(array_init_vec[i]);
+                    std::cout << ", ";
+                    std::cout << init_index;
+                    std::cout << "\n";
+                }
+            }
+
         }
     }
 };
@@ -2983,6 +3342,7 @@ class VarDefAST : public BaseAST{
     }
     std::string ident;
     std::unique_ptr<BaseAST> init_val;
+    std::unique_ptr<BaseAST> const_exp;
     void Dump(std::string& ret_str) const override{
         std::cout << "VARDEF" << std::endl;
         if(branch.size() == 1){
@@ -3030,7 +3390,7 @@ class VarDefAST : public BaseAST{
             ret_str += "\n";
             std::cout << "\n";
         }
-        else if(branch.size() == 2){
+        else if(branch.size() == 2 && branch[1]->type == _InitVal){
             std::string ans;
             std::string val;
             RetVal value;
@@ -3099,38 +3459,443 @@ class VarDefAST : public BaseAST{
                 std::cout << "\n";
             }
         }
+        else if(branch.size() == 3){ // 数组自定义初始化
+            std::cout << "VERDEF ARRAY WITH INIT VALUE" << std::endl;
+            std::string ans;
+            std::vector<std::string> val;
+            RetVal value, len;
+            int length = 0;
+            len = const_exp->Calc_val();
+            value = init_val->Calc_val();
+            std::cout << "VARDEF VALUE SUCCESS" << std::endl;
+            length = len.value;
+
+            Symbol symb;
+            if(cur_func_name.empty()){
+                symb.type = _GLOBAL_ARRAY;
+                symb.array_val = value.array_value;
+                global_var_table[ident] = symb;
+                ans = "@" + ident + "_" + "global";
+            }
+            else{
+                if(value.calcable){
+                    symb.type = _ARRAY;
+                    symb.array_val = value.array_value;
+                    int extra_zero = 0;
+                    if(symb.array_val.size() < length){
+                        extra_zero = length - symb.array_val.size();
+                    }
+                    for(int i = 0; i < extra_zero; ++ i){
+                        symb.array_val.push_back(0);
+                    }
+                }
+                else{
+                    symb.type = _ARRAY_UNCALC;
+                }
+                cur_table->sym_table[ident] = symb;
+                int depth = cur_table->table_index;
+                std::string inside_func = cur_table->func_name;
+                ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
+            }
+            std::cout << "VERDEF ARRAY STORE VALUE" << std::endl;
+            val = init_val->ArrayInit(ret_str);
+            std::cout << "VERDEF ARRAY INIT CALC" << val.size() << std::endl;
+            for(int i = 0; i < val.size(); ++ i){
+                std::cout << "val i" << val[i] << std::endl;
+            }
+            std::vector<std::string> array_init_vec;
+            array_init_vec = val;
+            
+            // 补0
+            int extra_zero = 0;
+            if(array_init_vec.size() < length){
+                extra_zero = length - array_init_vec.size();
+            }
+            for(int i = 0; i < extra_zero; ++ i){
+                array_init_vec.push_back(std::to_string(0));
+            }
+            // symb.array_val = array_init_vec;
+
+            ret_str += "    ";
+            std::cout << "    ";
+            
+            if(symb.type == _GLOBAL_ARRAY){
+                ret_str += "global ";
+                std::cout << "global ";
+            }
+        
+            ret_str += ans;
+            ret_str += " = alloc [i32, ";
+            ret_str += std::to_string(length);
+            ret_str += "]";
+
+            std::cout << ans;
+            std::cout << " = alloc [i32, ";
+            std::cout << std::to_string(length);
+            std::cout << "]";
+
+            if(symb.type == _GLOBAL_ARRAY){
+
+                // global 用数字初始化
+                ret_str += ", {";
+                std::cout << ", {";
+
+                if(length){
+                    ret_str += std::to_string(symb.array_val[0]);
+                    std::cout << std::to_string(symb.array_val[0]);
+                }
+                for(int i = 1; i < length; ++ i){
+                    ret_str += ", ";
+                    std::cout << ", ";
+                    ret_str += std::to_string(symb.array_val[i]);
+                    std::cout << std::to_string(symb.array_val[i]);
+                }
+
+                ret_str += "}";
+                std::cout << "}";
+            }
+
+            ret_str += "\n";
+            std::cout << "\n";
+            
+            if(symb.type == _ARRAY  || symb.type == _ARRAY_UNCALC){
+                for(int i = 0; i < length; ++ i){
+                    std::string init_index = "%" + std::to_string(var_count);
+                    var_count ++;
+                    ret_str += "    ";
+                    ret_str += init_index;
+                    ret_str += " = ";
+                    ret_str += "getelemptr ";
+                    ret_str += ans;
+                    ret_str += ", ";
+                    ret_str += std::to_string(i);
+                    ret_str += "\n    store ";
+                    ret_str += array_init_vec[i];
+                    ret_str += ", ";
+                    ret_str += init_index;
+                    ret_str += "\n";
+
+                    std::cout << "    ";
+                    std::cout << init_index;
+                    std::cout << " = ";
+                    std::cout << "getelemptr ";
+                    std::cout << ans;
+                    std::cout << ", ";
+                    std::cout << std::to_string(i);
+                    std::cout << "\n    store ";
+                    std::cout << array_init_vec[i];
+                    std::cout << ", ";
+                    std::cout << init_index;
+                    std::cout << "\n";
+                }
+            }
+        }
+        else if(branch.size() == 2 && branch[1]->type == _ConstExp){ // 数组全0初始化
+            std::string ans;
+            std::vector<std::string> val;
+            std::vector<int> val_int;
+            val.clear();
+            val_int.clear();
+            RetVal value, len;
+            int length = 0;
+            len = const_exp->Calc_val();
+            length = len.value;
+            Symbol symb;
+
+            for(int i = 0; i < length; ++ i){
+                val.push_back(std::to_string(0));
+                val_int.push_back(0);
+            }
+
+            if(cur_func_name.empty()){
+                symb.type = _GLOBAL_ARRAY;
+                symb.array_val = val_int;
+                global_var_table[ident] = symb;
+                ans = "@" + ident + "_" + "global";
+            }
+            else{
+                symb.type = _ARRAY;
+                symb.array_val = val_int;
+                cur_table->sym_table[ident] = symb;
+                int depth = cur_table->table_index;
+                std::string inside_func = cur_table->func_name;
+                ans = "@" + ident + "_" + inside_func + "_" + std::to_string(depth);
+            }
+
+            ret_str += "    ";
+            std::cout << "    ";
+            
+            if(symb.type == _GLOBAL_ARRAY){
+                ret_str += "global ";
+                std::cout << "global ";
+            }
+        
+            ret_str += ans;
+            ret_str += " = alloc [i32, ";
+            ret_str += std::to_string(length);
+            ret_str += "]";
+
+            std::cout << ans;
+            std::cout << " = alloc [i32, ";
+            std::cout << std::to_string(length);
+            std::cout << "]";
+
+            if(symb.type == _GLOBAL_ARRAY){
+                ret_str += ", zeroinit";
+                std::cout << ", zeroinit";
+                /*// global 用数字初始化
+                ret_str += ", {";
+                std::cout << ", {";
+
+                if(length){
+                    ret_str += std::to_string(symb.array_val[0]);
+                    std::cout << std::to_string(symb.array_val[0]);
+                }
+                for(int i = 1; i < length; ++ i){
+                    ret_str += ", ";
+                    std::cout << ", ";
+                    ret_str += std::to_string(symb.array_val[i]);
+                    std::cout << std::to_string(symb.array_val[i]);
+                }
+
+                ret_str += "}";
+                std::cout << "}";*/ 
+            }
+
+            ret_str += "\n";
+            std::cout << "\n";
+            
+            if(symb.type == _ARRAY  || symb.type == _ARRAY_UNCALC){
+                for(int i = 0; i < length; ++ i){
+                    std::string init_index = "%" + std::to_string(var_count);
+                    var_count ++;
+                    ret_str += "    ";
+                    ret_str += init_index;
+                    ret_str += " = ";
+                    ret_str += "getelemptr ";
+                    ret_str += ans;
+                    ret_str += ", ";
+                    ret_str += std::to_string(i);
+                    ret_str += "\n";
+                    ret_str += "    store ";
+                    ret_str += val[i];
+                    ret_str += ", ";
+                    ret_str += init_index;
+                    ret_str += "\n";
+
+                    std::cout << "    ";
+                    std::cout << init_index;
+                    std::cout << " = ";
+                    std::cout << "getelemptr ";
+                    std::cout << ans;
+                    std::cout << ", ";
+                    std::cout << std::to_string(i);
+                    std::cout << "\n";
+                    std::cout << "    store ";
+                    std::cout << val[i];
+                    std::cout << ", ";
+                    std::cout << init_index;
+                    std::cout << "\n";
+                }
+            }
+        }
     }
 };
 
 class ConstInitValAST : public BaseAST{
     public:
+    ConstInitValAST(){
+        type = _ConstInitVal;
+    }
     std::unique_ptr<BaseAST> const_exp;
+    std::unique_ptr<BaseAST> multi_const_array_init_val;
     void Dump(std::string& ret_str) const override{
 
     }
     RetVal Calc_val() override{
-        return const_exp->Calc_val();
+        RetVal ans;
+        std::vector<int> ret_array_val;
+        ret_array_val.clear();
+        if(branch[0]->type == _ConstExp){
+            ans = const_exp->Calc_val();
+        }
+        if(branch[0]->type == _MultiConstArrayInitVal){
+            ans = multi_const_array_init_val->Calc_val();
+        }
+        return ans;
+    }
+};
+
+class MultiConstArrayInitValAST : public BaseAST {
+    public:
+    MultiConstArrayInitValAST(){
+        type = _MultiConstArrayInitVal;
+    }
+    std::unique_ptr<BaseAST> const_exp;
+    std::unique_ptr<BaseAST> multi_const_array_init_val;
+    void Dump(std::string& ret_str) const override {
+
+    }
+    RetVal Calc_val() override{
+        std::cout << "MULTI CONST ARRAY INITVAL" << std::endl;
+        RetVal ans;
+        std::vector<int> ret_array_val;
+        ret_array_val.clear();
+        if(branch.size() == 0){ // 0初始化
+            ans.calcable = true;
+            // ret_array_val.push_back(0);
+            ans.array_value = ret_array_val;
+        }
+        else if(branch[0]->type == _ConstExp){
+            RetVal tmp_ans;
+            tmp_ans = const_exp->Calc_val();
+            ans.calcable = tmp_ans.calcable;
+            ret_array_val.push_back(tmp_ans.value);
+            ans.array_value = ret_array_val;
+        }
+        else if(branch[0]->type == _MultiConstArrayInitVal){
+            RetVal tmp_ans = multi_const_array_init_val->Calc_val();
+            RetVal exp_ans = const_exp->Calc_val();
+            ans.calcable = tmp_ans.calcable && exp_ans.calcable;
+            if(ans.calcable){
+                int array_len = tmp_ans.array_value.size();
+                for(int i = 0; i < array_len; ++ i){
+                    ret_array_val.push_back(tmp_ans.array_value[i]);
+                }
+                ret_array_val.push_back(exp_ans.value);
+                ans.array_value = ret_array_val;
+            }
+            else{
+                std::cout << "CONST ARRAY INIT WRONG" << std::endl;
+            }
+        }
+        return ans;
     }
 };
 
 class InitValAST : public BaseAST{
     public:
+    InitValAST(){
+        type =_InitVal;
+    }
     std::unique_ptr<BaseAST> Exp;
+    std::unique_ptr<BaseAST> multi_array_init_val;
     void Dump(std::string& ret_str) const override{
 
     }
     std::string Calc(std::string& ret_str) override{
         std::string ans;
-        ans = Exp->Calc(ret_str);
+        if(branch[0]->type == _Exp){
+            ans = Exp->Calc(ret_str);
+        }
+        else if(branch[0]->type == _MultiArrayInitVal){
+            std::cout << "WRONG ARRAY INNITVAL BRANCH" << std::endl;
+        }
+        return ans;
+    }
+    std::vector<std::string> ArrayInit(std::string& ret_str) override{
+        std::cout << "ARRAYINIT" << int(branch[0]->type == _MultiArrayInitVal) << std::endl;
+        std::vector<std::string> ans;
+        if(branch.size() == 0){
+            ans.clear();
+        }
+        else if(branch[0]->type == _Exp){
+            std::string tmp_ans;
+            tmp_ans = Exp->Calc(ret_str);
+            ans.push_back(tmp_ans);
+        }
+        else if(branch[0]->type == _MultiArrayInitVal){
+            std::cout << "MULTIARRAYINITVAL" << std::endl;
+            ans = multi_array_init_val->ArrayInit(ret_str);
+        }
         return ans;
     }
     RetVal Calc_val() override{
-        return Exp->Calc_val();
+        RetVal ans;
+        std::cout << int(branch[0]->type == _MultiArrayInitVal) << std::endl;
+        if(branch[0]->type == _Exp){
+            ans = Exp->Calc_val();
+        }
+        else if(branch[0]->type == _MultiArrayInitVal){
+            std::cout << "INITVAL MULTIARRAY CALCVAL" << std::endl;
+            ans = multi_array_init_val->Calc_val();
+            std::cout << "INITVAL FINISH" << std::endl;
+        }
+        return ans;
+    }
+};
+
+class MultiArrayInitValAST : public BaseAST {
+    public:
+    MultiArrayInitValAST(){
+        type = _MultiArrayInitVal;
+    }
+    std::unique_ptr<BaseAST> Exp;
+    std::unique_ptr<BaseAST> multi_array_init_val;
+    void Dump(std::string& ret_str) const override {
+
+    }
+    std::string Calc(std::string& ret_str) override {
+        std::cout << "ARRAY INIT WRONG BRANCH - MULTIARRAYINITVALAST" << std::endl;
+        return "";
+    }
+    std::vector<std::string> ArrayInit(std::string& ret_str) override{
+        std::vector<std::string> ans;
+        if(branch.size() == 0){
+            ans.push_back("0");
+        }
+        else if(branch[0]->type == _Exp){
+            std::string tmp_ans;
+            tmp_ans = Exp->Calc(ret_str);
+            ans.push_back(tmp_ans);
+        }
+        else if(branch[0]->type == _MultiArrayInitVal){
+            std::string tmp_ans;
+            ans = multi_array_init_val->ArrayInit(ret_str);
+            tmp_ans = Exp->Calc(ret_str);
+            ans.push_back(tmp_ans);
+        }
+        return ans;
+    }
+    RetVal Calc_val() override {
+        RetVal ans;
+        if(branch.size() == 0){
+            std::cout << "MULTIARRAY INITVAL NULL" << std::endl;
+            ans.calcable = true;
+            ans.array_value.clear();
+            std::cout << "MULTIARRAY INITVAL FINISH" << std::endl;
+        }
+        else if(branch[0]->type == _Exp){
+            std::cout << "MULTIARRAY INITVAL EXP" << std::endl;
+            RetVal exp_ans = Exp->Calc_val();
+            ans.calcable = exp_ans.calcable;
+            ans.array_value.push_back(exp_ans.value);
+        }
+        else if(branch[0]->type == _MultiArrayInitVal){
+            std::cout << "MULTIARRAY INITVAL CALCVAL" << std::endl;
+            RetVal exp_ans;
+            ans = multi_array_init_val->Calc_val();
+            std::cout << "MULTIARRAY FINISH MULTIINIT" << std::endl;
+            exp_ans = Exp->Calc_val();
+            std::cout << "MULTIARRAY FINISH EXP" << std::endl;
+            ans.calcable = ans.calcable && exp_ans.calcable;
+            std::cout << "CALCABLE" << std::endl;
+            ans.array_value.push_back(exp_ans.value);
+            std::cout << "FINISH MULTIARRAY INITVAL" << std::endl;
+            for(int i = 0; i < ans.array_value.size(); ++ i){
+                std::cout << ans.array_value[i] << std::endl;
+            }
+        }
+        std::cout << ans.calcable << std::endl;
+        return ans;
     }
 };
 
 class ConstExpAST : public BaseAST{
     public:
+    ConstExpAST(){
+        type = _ConstExp;
+    }
     std::unique_ptr<BaseAST> Exp;
     void Dump(std::string& ret_str) const override{
 

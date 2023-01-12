@@ -47,6 +47,7 @@ using namespace std;
 %type <ast_val> VarDecl MultiVarDef VarDef InitVal
 %type <ast_val> MatchedStmt OpenStmt
 %type <ast_val> MultiFuncFParam MultiFuncRParam FuncFParam
+%type <ast_val> MultiConstArrayInitVal MultiArrayInitVal ConstArrayInitVal ArrayInitVal
 // %type <int_val> Number
 %%
 
@@ -198,6 +199,20 @@ FuncFParam
     ident_ast->ident = ast->ident;
     ast->branch.push_back($1);
     ast->branch.push_back(ident_ast);
+    $$ = ast;
+  }
+  | BType IDENT '[' ']' {
+    printf("in array funcfparam\n");
+    auto ast = new FuncFParamAST();
+    ast->btype = unique_ptr<BaseAST>($1);
+    ast->ident = *unique_ptr<string>($2);
+    auto ident_ast = new IdentAST();
+    ident_ast->ident = ast->ident;
+    auto ident_ast_array = new IdentAST();
+    ident_ast->ident = "[]";
+    ast->branch.push_back($1);
+    ast->branch.push_back(ident_ast);
+    ast->branch.push_back(ident_ast_array);
     $$ = ast;
   }
   ;
@@ -363,6 +378,23 @@ ConstDef
     auto ast = new ConstDefAST();
     ast->ident = *unique_ptr<string>($1);
     ast->const_init_val = unique_ptr<BaseAST>($3);
+    auto ident_ast = new IdentAST();
+    ident_ast->ident = ast->ident;
+    ast->branch.push_back(ident_ast);
+    ast->branch.push_back($3);
+    $$ = ast;
+  }
+  | IDENT '[' ConstExp ']' '=' ConstInitVal {
+    printf("in constdef array\n");
+    auto ast = new ConstDefAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->const_exp = unique_ptr<BaseAST>($3);
+    ast->const_init_val = unique_ptr<BaseAST>($6);
+    auto ident_ast = new IdentAST();
+    ident_ast->ident = ast->ident;
+    ast->branch.push_back(ident_ast);
+    ast->branch.push_back($3);
+    ast->branch.push_back($6);
     $$ = ast;
   }
   | error {
@@ -379,6 +411,16 @@ VarDef
     ast->branch.push_back(ident_ast);
     $$ = ast;
   }
+  | IDENT '[' ConstExp ']' {
+    auto ast = new VarDefAST();
+    ast->ident = *unique_ptr<string>($1);
+    auto ident_ast = new IdentAST();
+    ident_ast->ident = ast->ident;
+    ast->const_exp = unique_ptr<BaseAST>($3);
+    ast->branch.push_back(ident_ast);
+    ast->branch.push_back($3);
+    $$ = ast;
+  }
   | IDENT '=' InitVal {
     auto ast = new VarDefAST();
     ast->ident = *unique_ptr<string>($1);
@@ -389,6 +431,18 @@ VarDef
     ast->branch.push_back($3);
     $$ = ast;
   }
+  | IDENT '[' ConstExp ']' '=' InitVal {
+    auto ast = new VarDefAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->const_exp = unique_ptr<BaseAST>($3);
+    ast->init_val = unique_ptr<BaseAST>($6);
+    auto ident_ast = new IdentAST();
+    ident_ast->ident = ast->ident;
+    ast->branch.push_back(ident_ast);
+    ast->branch.push_back($3);
+    ast->branch.push_back($6);
+    $$ = ast;
+  }
   ;
 
 ConstInitVal
@@ -396,6 +450,34 @@ ConstInitVal
     printf("in constinitval\n");
     auto ast = new ConstInitValAST();
     ast->const_exp = unique_ptr<BaseAST>($1);
+    ast->branch.push_back($1);
+    $$ = ast;
+  }
+  | '{' MultiConstArrayInitVal '}'{
+    auto ast = new ConstInitValAST();
+    ast->multi_const_array_init_val = unique_ptr<BaseAST>($2);
+    ast->branch.push_back($2);
+    $$ = ast;
+  }
+  ;
+
+MultiConstArrayInitVal 
+  : /* NULL */{
+    auto ast = new MultiConstArrayInitValAST();
+    $$ = ast;
+  }
+  | ConstExp {
+    auto ast = new MultiConstArrayInitValAST();
+    ast->const_exp = unique_ptr<BaseAST>($1);
+    ast->branch.push_back($1);
+    $$ = ast;
+  }
+  | MultiConstArrayInitVal ',' ConstExp {
+    auto ast = new MultiConstArrayInitValAST();
+    ast->multi_const_array_init_val = unique_ptr<BaseAST>($1);
+    ast->const_exp = unique_ptr<BaseAST>($3);
+    ast->branch.push_back($1);
+    ast->branch.push_back($3);
     $$ = ast;
   }
   ;
@@ -405,6 +487,34 @@ InitVal
     printf("initval in exp");
     auto ast = new InitValAST();
     ast->Exp = unique_ptr<BaseAST>($1);
+    ast->branch.push_back($1);
+    $$ = ast;
+  }
+  | '{' MultiArrayInitVal '}' {
+    auto ast = new InitValAST();
+    ast->multi_array_init_val = unique_ptr<BaseAST>($2);
+    ast->branch.push_back($2);
+    $$ = ast;
+  }
+  ;
+
+MultiArrayInitVal 
+  : /* NULL */{
+    auto ast = new MultiArrayInitValAST();
+    $$ = ast;
+  }
+  | Exp {
+    auto ast = new MultiArrayInitValAST();
+    ast->Exp = unique_ptr<BaseAST>($1);
+    ast->branch.push_back($1);
+    $$ = ast;
+  }
+  | MultiArrayInitVal ',' Exp {
+    auto ast = new MultiArrayInitValAST();
+    ast->multi_array_init_val = unique_ptr<BaseAST>($1);
+    ast->Exp = unique_ptr<BaseAST>($3);
+    ast->branch.push_back($1);
+    ast->branch.push_back($3);
     $$ = ast;
   }
   ;
@@ -622,6 +732,20 @@ LVal
     printf("in lval\n");
     auto ast = new LValAST();
     ast->ident = *unique_ptr<string>($1);
+    auto ident_ast = new IdentAST();
+    ident_ast->ident = ast->ident;
+    ast->branch.push_back(ident_ast);
+    cout << ast->ident << endl;
+    $$ = ast;
+  }
+  | IDENT '[' Exp ']' {
+    auto ast = new LValAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->Exp = unique_ptr<BaseAST>($3);
+    auto ident_ast = new IdentAST();
+    ident_ast->ident = ast->ident;
+    ast->branch.push_back(ident_ast);
+    ast->branch.push_back($3);
     cout << ast->ident << endl;
     $$ = ast;
   }
