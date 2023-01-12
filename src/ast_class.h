@@ -10,7 +10,7 @@ extern int var_count;
 // 参数param，全局变量，以及初始化/赋值时使用参数和全局变量的
 enum SYM_TYPE{
     _CONST, _NUM, _ARRAY, _ARRAY_UNCALC, _GLOBAL_ARRAY, _CONST_ARRAY, _CONST_GLOBAL_ARRAY, \
-    _UNK, _PARAM, _NUM_GLOBAL, _CONST_GLOBAL, _NUM_UNCALC, _CONST_UNCALC, 
+    _UNK, _ARRAY_PARAM, _NUM_PARAM, _NUM_GLOBAL, _CONST_GLOBAL, _NUM_UNCALC, _CONST_UNCALC, 
 };
 
 enum PARAM_TYPE {
@@ -32,10 +32,27 @@ struct Symbol{
   std::string sym_str;
 };
 
+struct Function{
+    std::string ret_type;
+    std::vector<PARAM_TYPE> param_type_list;
+    std::vector<std::string> param_name;
+    Function(std::string ret_type) { 
+		this->ret_type = ret_type;
+        this->param_type_list.clear();
+        this->param_name.clear();
+	};
+    Function(){
+        this->ret_type.clear();
+        this->param_type_list.clear();
+        this->param_name.clear();
+    }
+};
+
 typedef std::map<std::string, Symbol> SymTable;
-typedef std::map<std::string, std::string> FuncTable;
+// typedef std::map<std::string, std::string> FuncTable;
 typedef std::map<std::string, Symbol> GlobalVarTable;
-typedef std::map<std::string, PARAM_TYPE> CurParamType;
+typedef std::map<std::string, Function> FuncTable;
+typedef std::vector<PARAM_TYPE> CurParamType;
 typedef std::map<std::string, CurParamType> FuncParamType; 
 
 struct SymbolTable{
@@ -105,6 +122,10 @@ class BaseAST {
     std::vector<std::string> aaa;
     return aaa;
   }
+  virtual std::vector<PARAM_TYPE> Param_type() {
+    std::vector<PARAM_TYPE> aaa;
+    return aaa;
+  }
   virtual std::vector<std::string> ArrayInit(std::string& ret_str){
     std::vector<std::string> aaa;
     return aaa;
@@ -137,14 +158,20 @@ class ProgramUnitAST : public BaseAST {
         std::cout << "decl @starttime()\n";
         std::cout << "decl @stoptime()\n";
 
-        func_table["getint"] = "int";
-        func_table["getch"] = "int";
-        func_table["getarray"] = "int";
-        func_table["putint"] = "void";
-        func_table["putch"] = "void";
-        func_table["putarray"] = "void";
-        func_table["starttime"] = "void";
-        func_table["stoptime"] = "void";
+
+        func_table["getint"] = Function("int");
+        func_table["getch"] = Function("int");
+        func_table["getarray"] = Function("int");
+        func_table["getarray"].param_type_list.push_back(_PARAM_ARRAY);
+        func_table["putint"] = Function("void");
+        func_table["putint"].param_type_list.push_back(_PARAM_NUM);
+        func_table["putch"] = Function("void");
+        func_table["putch"].param_type_list.push_back(_PARAM_NUM);
+        func_table["putarray"] = Function("void");
+        func_table["putarray"].param_type_list.push_back(_PARAM_NUM);
+        func_table["putarray"].param_type_list.push_back(_PARAM_ARRAY);
+        func_table["starttime"] = Function("void");
+        func_table["stoptime"] = Function("void");
         
         comp_unit->Dump(ret_str);
     }
@@ -258,6 +285,29 @@ class MultiFuncFParamAST : public BaseAST {
         }
         return ans;
     }
+    std::vector<PARAM_TYPE> Param_type() override{
+        std::vector<PARAM_TYPE> ans;
+        std::vector<PARAM_TYPE> multi_ans;
+        std::vector<PARAM_TYPE> single_ans;
+        if(branch.size() == 0){
+            ans.clear();
+        }
+        else if(branch[0]->type == _MultiFuncFParam){
+            multi_ans = multi_funcf_param->Param_type();
+            single_ans = funcf_param->Param_type();
+            int multi_len = multi_ans.size();
+            for(int i = 0; i < multi_len; ++ i){
+                ans.push_back(multi_ans[i]);
+            }
+            ans.push_back(single_ans[0]);
+        }
+        else if(branch[0]->type == _FuncFParam){
+            std::cout << "SINGLE PARAM STORE TO VEC" << std::endl;
+            single_ans = funcf_param->Param_type();
+            ans.push_back(single_ans[0]);
+        }
+        return ans;
+    }
 };
 
 class FuncFParamAST : public BaseAST {
@@ -275,20 +325,30 @@ class FuncFParamAST : public BaseAST {
             if(btype_ptr->btype_name == "int"){
                 ret_str += " : i32";
                 std::cout << " : i32";
-                cur_param_list[ident] = _PARAM_NUM;
+                // cur_param_list[ident] = _PARAM_NUM;
             }
         }
         else if(branch.size() == 3){ // 数组
             if(btype_ptr->btype_name == "int"){
                 ret_str += " : *i32";
                 std::cout << " : *i32";
-                cur_param_list[ident] = _PARAM_ARRAY;
+                // cur_param_list[ident] = _PARAM_ARRAY;
             }
         }
     }
     std::vector<std::string> Param(std::string& ret_str) override {
         std::vector<std::string> ans;
         ans.push_back(ident);
+        return ans;
+    }
+    std::vector<PARAM_TYPE> Param_type() override{
+        std::vector<PARAM_TYPE> ans;
+        if(branch.size() == 2){
+            ans.push_back(_PARAM_NUM);
+        }
+        else if(branch.size() == 3){
+            ans.push_back(_PARAM_ARRAY);
+        }
         return ans;
     }
 };
@@ -306,16 +366,20 @@ class FuncDefAST : public BaseAST {
   void Dump(std::string& ret_str) const override {
     std::cout << "FUNCDEF" << std::endl;
     // 保存函数类型函数名到全局函数符号表
-    CurParamType param_type_list;
+    // CurParamType param_type_list;
     // param_type_list.clear();
-    program_param_list[ident] = param_type_list;
-    cur_param_list = program_param_list[ident];
-    cur_param_list.clear(); // 清空参数类型表
+    // program_param_list[ident] = param_type_list;
+    // cur_param_list = program_param_list[ident];
+    // cur_param_list.clear(); // 清空参数类型表
+
     BTypeAST* func_type_ptr = (BTypeAST *)branch[0];
-    func_table[ident] = func_type_ptr->btype_name;
+    func_table[ident] = Function(func_type_ptr->btype_name);
 
     // 导出参数列表
     MultiFuncFParamAST* func_params = (MultiFuncFParamAST *)branch[2];
+    func_table[ident].param_type_list = func_params->Param_type();
+    func_table[ident].param_name = func_params->Param(ret_str);
+    cur_param_list = func_table[ident].param_type_list;
 
     ret_str += "fun ";
     ret_str += "@";
@@ -332,11 +396,11 @@ class FuncDefAST : public BaseAST {
     std::cout << ") ";
     // func_type->Dump(ret_str);
 
-    if(func_table[ident] == "int"){
+    if(func_table[ident].ret_type == "int"){
         ret_str += ": i32";
         std::cout << ": i32";
     }
-    else if(func_table[ident] == "void"){
+    else if(func_table[ident].ret_type == "void"){
 
     }
 
@@ -378,7 +442,7 @@ class FuncDefAST : public BaseAST {
         ret_str += "    ";
         ret_str += param_register;
         ret_str += " = alloc ";
-        if(cur_param_list[param_list[i]] == _PARAM_ARRAY){
+        if(cur_param_list[i] == _PARAM_ARRAY){
             ret_str += "*";
         }
         ret_str += "i32\n";
@@ -391,7 +455,7 @@ class FuncDefAST : public BaseAST {
         std::cout << "  ";
         std::cout << param_register;
         std::cout << " = alloc ";
-        if(cur_param_list[param_list[i]] == _PARAM_ARRAY){
+        if(cur_param_list[i] == _PARAM_ARRAY){
             std::cout <<  "*";
         }
         std::cout << "i32\n";
@@ -402,7 +466,12 @@ class FuncDefAST : public BaseAST {
         std::cout << "\n";
 
         Symbol tmp_sym;
-        tmp_sym.type = _PARAM;
+        if(cur_param_list[i] == _PARAM_ARRAY){
+            tmp_sym.type = _ARRAY_PARAM;
+        }
+        else if(cur_param_list[i] == _PARAM_NUM){
+            tmp_sym.type = _NUM_PARAM;
+        }
         cur_table->sym_table[param_list[i]] = tmp_sym;
         
     }
@@ -697,8 +766,68 @@ class LValAST : public BaseAST{
             else if(tmp_ans.type == _CONST_UNCALC){
                 std::cout << "IMPOSSIBLE CONST UNCALC" << std::endl;
             }
-            else if(tmp_ans.type == _PARAM){
+            else if(tmp_ans.type == _NUM_PARAM){
                 ans = "%" + ident + "_" + inside_func + "_" + std::to_string(depth);
+            }
+            else if(tmp_ans.type == _ARRAY_PARAM){
+                std::string load_ans = "%" + std::to_string(var_count);
+                var_count ++;
+                ans = "%" + ident + "_" + inside_func + "_" + std::to_string(depth) + "_" + "ptr" + "_" + std::to_string(ptr_count);
+                ptr_count ++;
+                std::string arr_name = "%" + ident + "_" + inside_func + "_" + std::to_string(depth);
+                std::string index;
+                std::string index_ans;
+                index = Exp->Calc(ret_str);
+                index_ans = index;
+
+                if(index[0] == '@' || (index[0] == '%' && (index[1] > '9' || index[1] < '0'))){
+                    index_ans = "%" + std::to_string(var_count);
+                    var_count ++;
+
+                    ret_str += "    ";
+                    ret_str += index_ans;
+                    ret_str += " = ";
+                    ret_str += "load ";
+                    ret_str += index;
+                    ret_str += "\n";
+
+                    std::cout << "    ";
+                    std::cout << index_ans;
+                    std::cout << " = ";
+                    std::cout << "load ";
+                    std::cout << index;
+                    std::cout << "\n";
+                }
+
+                ret_str += "    ";
+                ret_str += load_ans;
+                ret_str += " = ";
+                ret_str += "load ";
+                ret_str += arr_name;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << load_ans;
+                std::cout << " = ";
+                std::cout << "load ";
+                std::cout << arr_name;
+                std::cout << "\n";
+
+                ret_str += "    ";
+                ret_str += ans;
+                ret_str += " = getptr ";
+                ret_str += load_ans;
+                ret_str += ", ";
+                ret_str += index_ans;
+                ret_str += "\n";
+
+                std::cout << "    ";
+                std::cout << ans;
+                std::cout << " = getptr ";
+                std::cout << load_ans;
+                std::cout << ", ";
+                std::cout << index_ans;
+                std::cout << "\n";
             }
             else if(tmp_ans.type == _CONST_ARRAY){
                 ans = "%" + ident +  + "_" + inside_func + "_" + std::to_string(depth) + "_" + "ptr" + "_" + std::to_string(ptr_count);
@@ -1714,12 +1843,45 @@ class UnaryExpAST : public BaseAST{
             std::cout << "\n";
         }
         else if(branch[0]->type == _Ident){ // 函数调用
-            std::cout << "CHECK FUNC TYPE" << func_table[ident] << std::endl;
+            std::cout << "CHECK FUNC TYPE" << func_table[ident].ret_type << std::endl;
             CurParamType prev_param_list = cur_param_list;
-            cur_param_list = program_param_list[ident];
+            cur_param_list = func_table[ident].param_type_list;
             std::vector<std::string> cur_param = multi_funcr_param->Param(ret_str);
+            std::vector<std::string> ans_param;
             int length = cur_param.size();
-            if(func_table[ident] == "int"){
+            std::cout << "MUST BE TRUE" << int(cur_param_list.size() == length) << std::endl;
+            std::cout << "TOTAL PARAM SIZE" << cur_param_list.size() << std::endl;
+            for(int i = 0; i < length; ++ i){
+                std::cout << cur_param_list[i] << std::endl;
+                if(cur_param_list[i] == _PARAM_ARRAY){
+                    ans_param.push_back(cur_param[i]);
+                }
+                else if(cur_param_list[i] == _PARAM_NUM){
+                    std::cout << "IN PARAM NUM" << cur_param[i] << std::endl;
+                    std::string tmp_ans = cur_param[i];
+                    std::string ans1 = tmp_ans;
+                    if(tmp_ans[0] == '@' || (tmp_ans[0] == '%' && (tmp_ans[1] > '9' || tmp_ans[1] < '0'))){
+                        ans1 = "%" + std::to_string(var_count);
+                        var_count ++;
+
+                        ret_str += "    ";
+                        ret_str += ans1;
+                        ret_str += " = ";
+                        ret_str += "load ";
+                        ret_str += tmp_ans;
+                        ret_str += "\n";
+
+                        std::cout << "    ";
+                        std::cout << ans1;
+                        std::cout << " = ";
+                        std::cout << "load ";
+                        std::cout << tmp_ans;
+                        std::cout << "\n";
+                    }
+                    ans_param.push_back(ans1);
+                }
+            }
+            if(func_table[ident].ret_type == "int"){
                 ans = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1731,7 +1893,7 @@ class UnaryExpAST : public BaseAST{
                 std::cout << ans;
                 std::cout << " = ";
             }
-            else if(func_table[ident] == "void"){
+            else if(func_table[ident].ret_type == "void"){
                 ret_str += "    ";
                 std::cout << "  ";
             }
@@ -1746,6 +1908,18 @@ class UnaryExpAST : public BaseAST{
             std::cout << "(";
 
             if(param_size){
+                ret_str += ans_param[0];
+                std::cout << ans_param[0];
+            }
+            for(int i = 1; i < param_size; ++ i){
+                ret_str += ", ";
+                ret_str += ans_param[i];
+
+                std::cout << ", ";
+                std::cout << ans_param[i];
+            }
+            /*
+            if(param_size){
                 ret_str += cur_param[0];
                 std::cout << cur_param[0];
             }
@@ -1755,10 +1929,11 @@ class UnaryExpAST : public BaseAST{
 
                 std::cout << ", ";
                 std::cout << cur_param[i];
-            }
+            }*/
             ret_str += ")\n";
             std::cout << ")\n";
             cur_param_list = prev_param_list;
+            std::cout << "TOTAL PARAM SIZE" << cur_param_list.size() << std::endl;
         }
 
         return ans;
@@ -1821,7 +1996,8 @@ class MultiFuncRParamAST : public BaseAST {
             tmp_ans = branch[0]->Calc(ret_str);
             std::string ans1 = tmp_ans;
             std::cout << "FUNCRPARAM EXP " << tmp_ans << std::endl;
-            if(tmp_ans[0] == '@' || (tmp_ans[0] == '%' && (tmp_ans[1] > '9' || tmp_ans[1] < '0'))){
+            std::cout << "TOTAL PARAM SIZE" << cur_param_list.size() << std::endl;
+            /*if(tmp_ans[0] == '@' || (tmp_ans[0] == '%' && (tmp_ans[1] > '9' || tmp_ans[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1838,15 +2014,16 @@ class MultiFuncRParamAST : public BaseAST {
                 std::cout << "load ";
                 std::cout << tmp_ans;
                 std::cout << "\n";
-            }
+            }*/
             ans.push_back(ans1);
         }
         else if(branch[0]->type == _MultiFuncRParam){
+            std::cout << "FUNCRPARAM MULTIFUNCRPARAM" << std::endl;
             std::vector<std::string> tmp;
             tmp = multi_funcr_param->Param(ret_str);
             tmp_ans = branch[1]->Calc(ret_str);
             std::string ans1 = tmp_ans;
-            if(tmp_ans[0] == '@' || (tmp_ans[0] == '%' && (tmp_ans[1] > '9' || tmp_ans[1] < '0'))){
+            /*if(tmp_ans[0] == '@' || (tmp_ans[0] == '%' && (tmp_ans[1] > '9' || tmp_ans[1] < '0'))){
                 ans1 = "%" + std::to_string(var_count);
                 var_count ++;
 
@@ -1863,12 +2040,13 @@ class MultiFuncRParamAST : public BaseAST {
                 std::cout << "load ";
                 std::cout << tmp_ans;
                 std::cout << "\n";
-            }
+            }*/
             int tmp_length = tmp.size();
             for(int i = 0; i < tmp_length; ++ i){
                 ans.push_back(tmp[i]);
             }
             ans.push_back(ans1);
+            std::cout << "MULTIFUNCRPARAM SIZE" << ans.size() << std::endl;
         }
         return ans;
     }
