@@ -11,16 +11,17 @@
 
 这个编译器不支持
 1. 涉及多维数组的一切（也就是没有写lv9.2的意思）
-2. 支持1-5包含的一切内容
+2. 除支持1-5之外的一切内容
 
-请参考lab文档使用这个编译器
+请参考lab文档使用这个编译器 
 
-生成Koopa IR：
+
+生成Koopa IR： 
 To Generate Koopa IR:
 ```
 build/compiler -koopa hello.c -o hello.koopa
 ```
-生成RISCV汇编：
+生成RISCV汇编： 
 To Generate RISCV:
 ```
 build/compiler -riscv hello.c -o hello.riscv
