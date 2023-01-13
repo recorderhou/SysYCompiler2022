@@ -2052,7 +2052,6 @@ class MultiFuncRParamAST : public BaseAST {
     }
 };
 
-
 class MulExpAST : public BaseAST{
     public:
     MulExpAST(){
