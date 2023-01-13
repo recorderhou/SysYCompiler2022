@@ -1,6 +1,9 @@
 # SysYCompiler2022
 
-2022秋北京大学编译原理lab [https://pku-minic.github.io/online-doc/#/]
+2022秋北京大学编译原理lab 
+ 
+参考文档(Doc)[https://pku-minic.github.io/online-doc/#/]
+编译器的其他背景内容(Other background information)[https://github.com/pku-minic]
 
 这个编译器支持：
 1. 表达式运算（+/-/\*/!/==/!=/>=/<=/>/<)
